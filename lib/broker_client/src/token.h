@@ -14,4 +14,7 @@ std::string base64UrlEncode(const uint8_t* data, size_t length);
 // The same as Python's secrets.token_urlsafe(nbytes): `nbytes` random bytes, base64url-encoded.
 std::string tokenUrlsafe(Random& random, size_t nbytes = 24);
 
+// Hashes the secret, then hashes "pairing:" plus the lowercase hex digest.
+std::string pairingToken(const std::string& secret, std::string (*sha256Hex)(const std::string&));
+
 }  // namespace countdown

@@ -4,11 +4,14 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
+#include <mbedtls/sha256.h>
 
 #include <string>
 #include <vector>
 
 #include "captive_probe.h"
+#include "display_registrar.h"
+#include "token.h"
 
 namespace {
 
@@ -67,6 +70,19 @@ String portalName() {
   String mac = WiFi.macAddress();  // AA:BB:CC:DD:EE:FF
   mac.replace(":", "");
   return "ePaper-Dashboard-" + mac.substring(8);
+}
+
+std::string sha256Hex(const std::string& input) {
+  unsigned char digest[32];
+  mbedtls_sha256_ret(reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest, 0);
+  constexpr char hex[] = "0123456789abcdef";
+  std::string result;
+  result.reserve(sizeof(digest) * 2);
+  for (const unsigned char byte : digest) {
+    result += hex[byte >> 4];
+    result += hex[byte & 0x0f];
+  }
+  return result;
 }
 
 // Answers every URL WiFiManager has no page for (phones' captive-portal checks, favicon.ico) with a
@@ -144,10 +160,11 @@ if(!v[0]&&v[1])location.href=u;else if(v[0]&&Date.now()-s>60000)location.href='/
   return script;
 }
 
-void runPortal(countdown::Store& store, countdown::Log& log, const std::string& afterSetupUrl) {
+void runPortal(countdown::Store& store, countdown::Random& random, countdown::Log& log,
+               const std::string& afterSetupUrl) {
   PortalManager manager;
   // Must outlive manager: it keeps the pointer.
-  const String head = String(kLogoStyle) + kHideNoApScript + redirectScript(afterSetupUrl);
+  const String head = String(kLogoStyle) + kHideNoApScript;
   manager.setCustomHeadElement(head.c_str());
   // Runs before WiFiManager registers its own pages, so this handler is asked first.
   manager.setWebServerCallback([&manager]() {
@@ -176,6 +193,18 @@ void runPortal(countdown::Store& store, countdown::Log& log, const std::string& 
   const String name = portalName();
   log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() + " and browse to 192.168.4.1");
   manager.startConfigPortal(name.c_str());
+  std::string secret = store.get(countdown::kDeviceSecretKey).value_or("");
+  if (secret.empty()) {
+    secret = countdown::tokenUrlsafe(random);
+    store.put(countdown::kDeviceSecretKey, secret);
+  }
+  std::string pairingUrl = afterSetupUrl;
+  while (!pairingUrl.empty() && pairingUrl.back() == '/') {
+    pairingUrl.pop_back();
+  }
+  pairingUrl += "/pair#" + countdown::pairingToken(secret, sha256Hex);
+  const String headWithRedirect = head + redirectScript(pairingUrl);
+  manager.setCustomHeadElement(headWithRedirect.c_str());
   // Added after WiFiManager's own handlers, so it only gets the URLs they don't match.
   manager.server->addHandler(new RedirectToPortal());
 
@@ -198,7 +227,8 @@ void runPortal(countdown::Store& store, countdown::Log& log, const std::string& 
 
 }  // namespace
 
-void connectWifi(countdown::Store& store, countdown::Log& log, const std::string& afterSetupUrl) {
+void connectWifi(countdown::Store& store, countdown::Random& random, countdown::Log& log,
+                 const std::string& afterSetupUrl) {
   WiFi.setHostname(kHostname);  // before mode(), or the 2.x core ignores it
   WiFi.mode(WIFI_STA);
   // The credentials live in our NVS keys, not the Wi-Fi driver's own copy.
@@ -216,6 +246,6 @@ void connectWifi(countdown::Store& store, countdown::Log& log, const std::string
   } else {
     log.info("No Wi-Fi credentials saved");
   }
-  runPortal(store, log, afterSetupUrl);
+  runPortal(store, random, log, afterSetupUrl);
   log.info(std::string("Connected, IP: ") + WiFi.localIP().toString().c_str());
 }
