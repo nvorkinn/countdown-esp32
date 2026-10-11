@@ -1,0 +1,83 @@
+name: Firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-native-${{ hashFiles('platformio.ini') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO and gcovr
+        run: pip install --upgrade platformio gcovr
+
+      - name: Run unit tests
+        run: pio test -e native
+
+      - name: Measure coverage
+        run: >
+          gcovr --root . --filter lib/ --exclude-throw-branches --exclude-unreachable-branches
+          --print-summary --xml coverage.xml --fail-under-line 95 .pio/build/native
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          flags: countdown-esp32
+          disable_search: true
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        run: pio run -e esp-wrover-kit
+
+      - name: Collect binaries
+        run: |
+          mkdir -p dist
+          ref="${GITHUB_REF_NAME//\//-}"
+          for dir in .pio/build/*/; do
+            env=$(basename "$dir")
+            cp "$dir/firmware.bin" "dist/countdown-esp32-${env}-${ref}.bin"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: dist/*.bin
+          if-no-files-found: error
