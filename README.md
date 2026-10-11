@@ -76,7 +76,7 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 {
   "role": "display",
   "metrics": "esp32,device_id={device_id} uptime_s=3600i,free_heap=182344i,min_free_heap=150212i,free_psram=4100000i,wifi_rssi=-61i,reset_reason=1i,logs_dropped=0i",
-  "logs": [{"uptime_ms": 3599012, "level": "INFO", "message": "Got a frame (48000 bytes)"}]
+  "logs": [{"service": "countdown-esp32", "host": "countdown-esp-nikolai", "level": "info", "_msg": "Got a frame (48000 bytes)", "uptime_ms": 3599012}]
 }
 ```
 
@@ -86,7 +86,11 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
   in with the device it authenticated the poll as. The fields are `uptime_s`, `free_heap`, `min_free_heap`,
   `free_psram`, `wifi_rssi`, `reset_reason` and `logs_dropped`.
 - **`logs`:** every line logged since the broker last answered, oldest first, from Wi-Fi set-up on.
-  They're stamped with milliseconds since boot, since the board has no wall clock.
+  They're stamped with milliseconds since boot, since the board has no wall clock. Each line uses the
+  standard log fields shared by everything shipped to VictoriaLogs: `service` (`countdown-esp32`), `host`
+  (the board's Wi-Fi hostname, `kDeviceName` in `src/device_name.h`), `level` (`info`, `warn` or `error`) and
+  `_msg`, plus `uptime_ms`. The broker adds `device_id` and forwards them to Fluent Bit, whose VictoriaLogs
+  output must use `_msg_field=_msg` and `_stream_fields=service,host`.
   An answer of 200, 202, 304 or 404 clears them. When there's no answer, a 401, or anything
   else, they're kept for the next poll.
 - **Limits:** to protect the heap during a long outage, the buffer holds at most 50 lines and 8 KB of messages (lines

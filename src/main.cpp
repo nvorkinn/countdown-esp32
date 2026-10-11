@@ -1,5 +1,6 @@
 #include <Arduino.h>
 
+#include "device_name.h"
 #include "display_registrar.h"
 #include "epd7in5_v2.h"
 #include "epd_display.h"
@@ -44,7 +45,7 @@ void setup() {
   static EspEpdBus epdBus({EPD_PIN_DIN, EPD_PIN_CLK, EPD_PIN_CS, EPD_PIN_DC, EPD_PIN_RST, EPD_PIN_BUSY, EPD_PIN_PWR});
   static countdown::Epd7in5V2 panel(epdBus);
   static countdown::EpdDisplay display(panel, log);
-  static countdown::FrameClient frameClient(registrar, http, display, sleeper, log, metrics);
+  static countdown::FrameClient frameClient(registrar, http, display, sleeper, log, metrics, kLogService, kDeviceName);
   client = &frameClient;
 }
 

@@ -19,7 +19,7 @@ struct Client {
   DisplayRegistrar registrar;
   FrameClient client;
 
-  Client() : registrar(withSecret(board)), client(registrar, board.http, board.display, board.sleeper, board.logs, board.metrics) {}
+  Client() : registrar(withSecret(board)), client(registrar, board.http, board.display, board.sleeper, board.logs, board.metrics, "countdown-esp32", "my-device") {}
 
   static DisplayRegistrar withSecret(Board& board) {
     board.store.values[kDeviceSecretKey] = "shh";
@@ -51,7 +51,8 @@ void test_the_first_tick_registers_then_polls_the_frame() {
   TEST_ASSERT_EQUAL_STD_STRING(kFrameUrl, poll.url);
   TEST_ASSERT_EQUAL_STD_STRING(
       R"({"role":"display","metrics":"esp32,device_id={device_id} logs_dropped=0i",)"
-      R"("logs":[{"uptime_ms":0,"level":"INFO","message":"Registered with the broker"}]})",
+      R"("logs":[{"service":"countdown-esp32","host":"my-device","level":"info",)"
+      R"("_msg":"Registered with the broker","uptime_ms":0}]})",
       poll.body);
   TEST_ASSERT_EQUAL_STD_STRING("shh", poll.bearer);
 }
@@ -192,7 +193,7 @@ void test_polls_carry_the_new_secret_after_a_409() {
   Board board;
   board.store.values[kDeviceSecretKey] = "a renderer's";
   DisplayRegistrar registrar = board.registrar();
-  FrameClient client(registrar, board.http, board.display, board.sleeper, board.logs, board.metrics);
+  FrameClient client(registrar, board.http, board.display, board.sleeper, board.logs, board.metrics, "countdown-esp32", "my-device");
   board.http.reply(409);
   board.http.reply(201);
   board.http.reply(202);
@@ -226,7 +227,7 @@ void test_polls_carry_the_logs_with_their_uptime_level_and_escaped_message() {
 
   TEST_ASSERT_NOT_EQUAL(
       std::string::npos,
-      c.lastBody().find(R"({"uptime_ms":1234,"level":"WARNING","message":"say \"hi\"\nback\\slash"})"));
+      c.lastBody().find(R"({"service":"countdown-esp32","host":"my-device","level":"warn","_msg":"say \"hi\"\nback\\slash","uptime_ms":1234})"));
 }
 
 void test_logs_the_broker_answered_are_not_sent_again() {
