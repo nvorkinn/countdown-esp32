@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "json.h"
@@ -15,11 +16,11 @@ namespace {
 const char* levelName(LogLevel level) {
   switch (level) {
     case LogLevel::Error:
-      return "ERROR";
+      return "error";
     case LogLevel::Warning:
-      return "WARNING";
+      return "warn";
     default:
-      return "INFO";
+      return "info";
   }
 }
 
@@ -27,14 +28,16 @@ const char* levelName(LogLevel level) {
 // the poll as, so the board never has to claim one.
 constexpr char kMetricsSeriesKey[] = "esp32,device_id={device_id}";
 
-// {"role":"display","metrics":"<line protocol>","logs":[{"uptime_ms":...,"level":...,"message":...},...]}
-std::string pollBody(const std::vector<Metric>& metrics, const std::deque<LogEntry>& logs) {
+// {"role":"display","metrics":"<line protocol>","logs":[{"service":...,"host":...,"level":...,"_msg":...,"uptime_ms":...},...]}
+std::string pollBody(const std::vector<Metric>& metrics, const std::deque<LogEntry>& logs, const std::string& service,
+                     const std::string& host) {
   std::string body = R"({"role":"display","metrics":)" + jsonString(influxLine(kMetricsSeriesKey, metrics));
   body += R"(,"logs":[)";
   for (size_t i = 0; i < logs.size(); ++i) {
     body += (i ? "," : "");
-    body += R"({"uptime_ms":)" + std::to_string(logs[i].uptimeMs) + R"(,"level":")" + levelName(logs[i].level) +
-            R"(","message":)" + jsonString(logs[i].message) + "}";
+    body += R"({"service":)" + jsonString(service) + R"(,"host":)" + jsonString(host) + R"(,"level":")" +
+            levelName(logs[i].level) + R"(","_msg":)" + jsonString(logs[i].message) + R"(,"uptime_ms":)" +
+            std::to_string(logs[i].uptimeMs) + "}";
   }
   body += "]}";
   return body;
@@ -43,8 +46,15 @@ std::string pollBody(const std::vector<Metric>& metrics, const std::deque<LogEnt
 }  // namespace
 
 FrameClient::FrameClient(DisplayRegistrar& registrar, Http& http, Display& display, Sleeper& sleeper,
-                         LogBuffer& log, Metrics& metrics)
-    : registrar_(registrar), http_(http), display_(display), sleeper_(sleeper), log_(log), metrics_(metrics) {}
+                         LogBuffer& log, Metrics& metrics, std::string service, std::string host)
+    : registrar_(registrar),
+      http_(http),
+      display_(display),
+      sleeper_(sleeper),
+      log_(log),
+      metrics_(metrics),
+      service_(std::move(service)),
+      host_(std::move(host)) {}
 
 void FrameClient::tick() {
   if (!registered_) {
@@ -56,7 +66,7 @@ void FrameClient::tick() {
   metrics.push_back({"logs_dropped", static_cast<int64_t>(log_.dropped())});
   const std::deque<LogEntry>& logs = log_.entries();
   const uint64_t sentThrough = logs.empty() ? 0 : logs.back().seq;
-  const HttpResponse response = http_.request("POST", url, pollBody(metrics, logs), registrar_.secret(), etag_);
+  const HttpResponse response = http_.request("POST", url, pollBody(metrics, logs, service_, host_), registrar_.secret(), etag_);
   if (!response.sent) {
     log_.warning("Couldn't fetch the frame: " + response.error);
     sleeper_.sleepSeconds(kDefaultRetryS);

@@ -14,7 +14,7 @@ class FrameClient {
  public:
   // `log` is where the client logs too, and what each poll sends.
   FrameClient(DisplayRegistrar& registrar, Http& http, Display& display, Sleeper& sleeper, LogBuffer& log,
-              Metrics& metrics);
+              Metrics& metrics, std::string service, std::string host);
 
   // One poll of /api/frame, registering first if it isn't registered (yet, or any more), then
   // waiting as long as the broker asks. Each poll carries the board's metrics and the buffered
@@ -28,6 +28,9 @@ class FrameClient {
   Sleeper& sleeper_;
   LogBuffer& log_;
   Metrics& metrics_;
+  // Sent with every log line, so VictoriaLogs can tell where it came from (stream fields service,host).
+  std::string service_;
+  std::string host_;
   bool registered_ = false;
   // The ETag of the frame on the panel, sent as If-None-Match so the broker answers 304 instead of
   // sending the same frame again. Empty until a frame has been drawn.

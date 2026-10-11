@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "captive_probe.h"
+#include "device_name.h"
 #include "display_registrar.h"
 #include "token.h"
 
@@ -17,7 +18,6 @@ namespace {
 
 constexpr char kSsidKey[] = "WIFI_SSID";
 constexpr char kPasswordKey[] = "WIFI_PASSWORD";
-constexpr char kHostname[] = "countdown-esp-nikolai";
 constexpr unsigned long kConnectTimeoutMs = 30 * 1000;
 constexpr int kPortalTimeoutS = 5 * 60;
 
@@ -229,7 +229,7 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
 
 void connectWifi(countdown::Store& store, countdown::Random& random, countdown::Log& log,
                  const std::string& afterSetupUrl) {
-  WiFi.setHostname(kHostname);  // before mode(), or the 2.x core ignores it
+  WiFi.setHostname(kDeviceName);  // before mode(), or the 2.x core ignores it
   WiFi.mode(WIFI_STA);
   // The credentials live in our NVS keys, not the Wi-Fi driver's own copy.
   WiFi.persistent(false);
