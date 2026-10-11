@@ -31,13 +31,13 @@ void setup() {
   static NvsStore store(kNvsNamespace);
   static SerialLog serialLog;
   static EspClock clock;
+  // The hardware RNG is used after Wi-Fi is on, when it has full entropy.
+  static EspRandom random;
   // Everything logs through this, so the broker gets the lines from Wi-Fi set-up on.
   static countdown::LogBuffer log(serialLog, clock);
-  connectWifi(store, log, BROKER_URL);
+  connectWifi(store, random, log, BROKER_URL);
 
-  // Made after Wi-Fi is up, so a new device secret comes from the RNG at its most random.
   static EspHttp http(kBrokerRootCerts);
-  static EspRandom random;
   static DelaySleeper sleeper;
   static EspMetrics metrics;
   static countdown::DisplayRegistrar registrar(BROKER_URL, store, http, random, sleeper, log);

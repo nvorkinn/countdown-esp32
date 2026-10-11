@@ -39,4 +39,8 @@ std::string tokenUrlsafe(Random& random, size_t nbytes) {
   return base64UrlEncode(bytes.data(), bytes.size());
 }
 
+std::string pairingToken(const std::string& secret, std::string (*sha256Hex)(const std::string&)) {
+  return sha256Hex("pairing:" + sha256Hex(secret));
+}
+
 }  // namespace countdown
