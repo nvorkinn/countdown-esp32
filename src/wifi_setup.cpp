@@ -86,9 +86,7 @@ std::string sha256Hex(const std::string& input) {
   return result;
 }
 
-// Answers every URL WiFiManager has no page for (phones' captive-portal checks, favicon.ico) with a
-// redirect to the portal. Without it they fall through to WiFiManager's onNotFound, which redirects
-// too, but only after WebServer has logged "request handler not found" for each one.
+// Redirects requests for foreign hosts before WiFiManager's page handlers.
 void redirectToPortal(WebServer& server) {
   server.sendHeader("Location", String("http://") + kDeviceName + ".local/", true);
   server.send(302, "text/plain", "");
@@ -209,6 +207,7 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   const String name = portalName();
   log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() + " and browse to 192.168.4.1");
   manager.startConfigPortal(name.c_str());
+  manager.server->onNotFound([&manager]() { redirectToPortal(*manager.server); });
   if (!MDNS.begin(kDeviceName)) {
     log.warning("Couldn't start mDNS; the set-up redirect to " + std::string(kDeviceName) + ".local may not resolve");
   }
