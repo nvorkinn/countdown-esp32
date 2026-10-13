@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <WiFiManager.h>
 #include <mbedtls/sha256.h>
 
@@ -89,7 +90,7 @@ std::string sha256Hex(const std::string& input) {
 // redirect to the portal. Without it they fall through to WiFiManager's onNotFound, which redirects
 // too, but only after WebServer has logged "request handler not found" for each one.
 void redirectToPortal(WebServer& server) {
-  server.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
+  server.sendHeader("Location", String("http://") + kDeviceName + ".local/", true);
   server.send(302, "text/plain", "");
 }
 
@@ -193,6 +194,9 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   const String name = portalName();
   log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() + " and browse to 192.168.4.1");
   manager.startConfigPortal(name.c_str());
+  if (!MDNS.begin(kDeviceName)) {
+    log.warning("Couldn't start mDNS; the set-up redirect to " + std::string(kDeviceName) + ".local may not resolve");
+  }
   std::string secret = store.get(countdown::kDeviceSecretKey).value_or("");
   if (secret.empty()) {
     secret = countdown::tokenUrlsafe(random);
@@ -221,6 +225,7 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
     manager.stopConfigPortal();
   }
   WiFi.removeEvent(scanEvent);
+  MDNS.end();
   WiFi.mode(WIFI_STA);  // the portal's access point off for good
   store.put(kSsidKey, WiFi.SSID().c_str());
   store.put(kPasswordKey, manager.getWiFiPass().c_str());
