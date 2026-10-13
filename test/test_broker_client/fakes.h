@@ -147,6 +147,8 @@ constexpr char kSecondToken[] = "GBkaGxwdHh8gISIjJCUmJygpKissLS4v";
 
 constexpr char kBrokerUrl[] = "https://broker.example";
 constexpr char kRegisterUrl[] = "https://broker.example/api/devices/register";
+constexpr int kPanelWidth = 800;
+constexpr int kPanelHeight = 480;
 constexpr char kFrameUrl[] = "https://broker.example/api/frame";
 
 // Everything a DisplayRegistrar or FrameClient talks to, wired together.
@@ -163,7 +165,7 @@ struct Board {
   LogBuffer logs{log, clock};
 
   DisplayRegistrar registrar(const std::string& brokerUrl = kBrokerUrl) {
-    return DisplayRegistrar(brokerUrl, store, http, random, sleeper, logs);
+    return DisplayRegistrar(brokerUrl, store, http, random, sleeper, logs, kPanelWidth, kPanelHeight);
   }
 };
 

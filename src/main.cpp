@@ -41,7 +41,8 @@ void setup() {
   static EspHttp http(kBrokerRootCerts);
   static DelaySleeper sleeper;
   static EspMetrics metrics;
-  static countdown::DisplayRegistrar registrar(BROKER_URL, store, http, random, sleeper, log);
+  static countdown::DisplayRegistrar registrar(BROKER_URL, store, http, random, sleeper, log,
+                                               countdown::Epd7in5V2::kWidth, countdown::Epd7in5V2::kHeight);
   static EspEpdBus epdBus({EPD_PIN_DIN, EPD_PIN_CLK, EPD_PIN_CS, EPD_PIN_DC, EPD_PIN_RST, EPD_PIN_BUSY, EPD_PIN_PWR});
   static countdown::Epd7in5V2 panel(epdBus);
   static countdown::EpdDisplay display(panel, log);

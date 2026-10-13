@@ -13,7 +13,7 @@ using namespace countdown::testing;
 namespace {
 
 std::string registerBody(const std::string& secret) {
-  return R"({"role":"display","secret":")" + secret + R"("})";
+  return R"({"role":"display","secret":")" + secret + R"(","width":800,"height":480})";
 }
 
 void test_a_new_device_saves_its_secret_before_sending_it() {
