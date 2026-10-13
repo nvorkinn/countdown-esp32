@@ -88,7 +88,7 @@ std::string sha256Hex(const std::string& input) {
 
 // Redirects requests for foreign hosts before WiFiManager's page handlers.
 void redirectToPortal(WebServer& server) {
-  server.sendHeader("Location", String("http://") + kDeviceName + ".local/", true);
+  server.sendHeader("Location", String("http://") + kDeviceName + ".local/wifi", true);
   server.send(302, "text/plain", "");
 }
 
@@ -111,6 +111,15 @@ class RedirectToPortal : public RequestHandler {
 
  private:
   WiFiManager& manager_;
+};
+
+class RedirectUnknownRequest : public RequestHandler {
+ public:
+  bool canHandle(HTTPMethod, String) override { return true; }
+  bool handle(WebServer& server, HTTPMethod, String) override {
+    redirectToPortal(server);
+    return true;
+  }
 };
 
 // The boards are given away, so the portal only offers Wi-Fi set-up. Hiding the menu entries isn't
@@ -205,9 +214,11 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
       [&manager](arduino_event_id_t, arduino_event_info_t) { manager.onScanDone(WiFi.scanComplete()); },
       ARDUINO_EVENT_WIFI_SCAN_DONE);
   const String name = portalName();
-  log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() + " and browse to 192.168.4.1");
+  log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() + " and browse to http://" +
+           kDeviceName + ".local/wifi (or 192.168.4.1)");
   manager.startConfigPortal(name.c_str());
-  manager.server->onNotFound([&manager]() { redirectToPortal(*manager.server); });
+  // Registered after WiFiManager's routes, so only otherwise-unknown paths reach this handler.
+  manager.server->addHandler(new RedirectUnknownRequest());
   if (!MDNS.begin(kDeviceName)) {
     log.warning("Couldn't start mDNS; the set-up redirect to " + std::string(kDeviceName) + ".local may not resolve");
   }
