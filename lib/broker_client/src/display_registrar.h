@@ -15,10 +15,11 @@ constexpr char kDeviceSecretKey[] = "device_secret";
 
 class DisplayRegistrar {
  public:
+  // `width` and `height` are the panel's size in pixels, sent with every registration.
   // Loads the device secret from `store`, or makes and saves a new one. A new secret is saved
   // before it's ever sent, so retrying a registration never makes a second identity.
   DisplayRegistrar(const std::string& brokerUrl, Store& store, Http& http, Random& random,
-                   Sleeper& sleeper, Log& log);
+                   Sleeper& sleeper, Log& log, int width, int height);
 
   // Registers, retrying until the broker takes it. A display registers on every boot (the broker
   // allows it) and doesn't wait to be matched with a renderer: until it is, its frame polls
@@ -37,6 +38,8 @@ class DisplayRegistrar {
   Random& random_;
   Sleeper& sleeper_;
   Log& log_;
+  int width_;
+  int height_;
   std::string secret_;
 };
 

@@ -6,8 +6,8 @@
 namespace countdown {
 
 DisplayRegistrar::DisplayRegistrar(const std::string& brokerUrl, Store& store, Http& http,
-                                   Random& random, Sleeper& sleeper, Log& log)
-    : brokerUrl_(brokerUrl), store_(store), http_(http), random_(random), sleeper_(sleeper), log_(log) {
+                                   Random& random, Sleeper& sleeper, Log& log, int width, int height)
+    : brokerUrl_(brokerUrl), store_(store), http_(http), random_(random), sleeper_(sleeper), log_(log), width_(width), height_(height) {
   while (!brokerUrl_.empty() && brokerUrl_.back() == '/') {
     brokerUrl_.pop_back();
   }
@@ -21,7 +21,8 @@ void DisplayRegistrar::registerDevice() {
   const std::string url = brokerUrl_ + "/api/devices/register";
   while (true) {
     // The secret is URL-safe base64, so it needs no escaping.
-    const std::string body = R"({"role":"display","secret":")" + secret_ + R"("})";
+    const std::string body = R"({"role":"display","secret":")" + secret_ + R"(","width":)" +
+                             std::to_string(width_) + R"(,"height":)" + std::to_string(height_) + "}";
     const HttpResponse response = http_.request("POST", url, body, secret_, "");
     if (!response.sent) {
       log_.warning("Couldn't register with the broker: " + response.error);
