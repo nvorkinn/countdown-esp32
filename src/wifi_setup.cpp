@@ -94,13 +94,25 @@ void redirectToPortal(WebServer& server) {
   server.send(302, "text/plain", "");
 }
 
+bool isMdnsHost(String host) {
+  if (host.endsWith(":80")) {
+    host.remove(host.length() - 3);
+  }
+  return host.equalsIgnoreCase(String(kDeviceName) + ".local");
+}
+
 class RedirectToPortal : public RequestHandler {
  public:
-  bool canHandle(HTTPMethod, String) override { return true; }
+  explicit RedirectToPortal(WiFiManager& manager) : manager_(manager) {}
+
+  bool canHandle(HTTPMethod, String) override { return !isMdnsHost(manager_.server->hostHeader()); }
   bool handle(WebServer& server, HTTPMethod, String) override {
     redirectToPortal(server);
     return true;
   }
+
+ private:
+  WiFiManager& manager_;
 };
 
 // The boards are given away, so the portal only offers Wi-Fi set-up. Hiding the menu entries isn't
@@ -171,6 +183,7 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   manager.setWebServerCallback([&manager]() {
     manager.server->addHandler(new AppleProbeSuccess(manager));
     manager.server->addHandler(new HideMaintenancePages());
+    manager.server->addHandler(new RedirectToPortal(manager));
   });
   std::vector<const char*> menu = {"wifi"};
   manager.setMenu(menu);
@@ -179,6 +192,8 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   // Non-blocking, so the loop below can stop the portal as soon as Wi-Fi is up.
   manager.setConfigPortalBlocking(false);
   manager.setConfigPortalTimeout(kPortalTimeoutS);
+  // WiFiManager's built-in redirect points to the AP IP; RedirectToPortal sends requests to mDNS.
+  manager.setCaptivePortalEnable(false);
   // Without a save timeout WiFiManager waits with WiFi.waitForConnectResult() too, so a network
   // that isn't found on the first try fails the save and the portal shows "No AP set".
   manager.setSaveConnectTimeout(kConnectTimeoutMs / 1000);
@@ -211,9 +226,6 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   pairingUrl += "/pair?t=" + countdown::pairingToken(secret, sha256Hex);
   const String headWithRedirect = head + redirectScript(pairingUrl);
   manager.setCustomHeadElement(headWithRedirect.c_str());
-  // Added after WiFiManager's own handlers, so it only gets the URLs they don't match.
-  manager.server->addHandler(new RedirectToPortal());
-
   while (!manager.process() && WiFi.status() != WL_CONNECTED) {
     if (!manager.getConfigPortalActive()) {
       log.error("Nobody set up Wi-Fi in time; restarting");
