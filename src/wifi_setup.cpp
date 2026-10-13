@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <WiFiManager.h>
 #include <mbedtls/sha256.h>
 
@@ -85,21 +86,48 @@ std::string sha256Hex(const std::string& input) {
   return result;
 }
 
-// Answers every URL WiFiManager has no page for (phones' captive-portal checks, favicon.ico) with a
-// redirect to the portal. Without it they fall through to WiFiManager's onNotFound, which redirects
-// too, but only after WebServer has logged "request handler not found" for each one.
-void redirectToPortal(WebServer& server) {
-  server.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
+// Redirects requests for foreign hosts before WiFiManager's page handlers.
+void redirectToPortal(WebServer& server, countdown::Log& log) {
+  const String url = String("http://") + kDeviceName + ".local/wifi";
+  log.info(std::string("Redirecting portal request to ") + url.c_str());
+  server.sendHeader("Location", url, true);
   server.send(302, "text/plain", "");
+}
+
+bool isMdnsHost(String host) {
+  if (host.endsWith(":80")) {
+    host.remove(host.length() - 3);
+  }
+  return host.equalsIgnoreCase(String(kDeviceName) + ".local");
 }
 
 class RedirectToPortal : public RequestHandler {
  public:
-  bool canHandle(HTTPMethod, String) override { return true; }
+  RedirectToPortal(WiFiManager& manager, countdown::Log& log) : manager_(manager), log_(log) {}
+
+  bool canHandle(HTTPMethod, String) override { return !isMdnsHost(manager_.server->hostHeader()); }
   bool handle(WebServer& server, HTTPMethod, String) override {
-    redirectToPortal(server);
+    redirectToPortal(server, log_);
     return true;
   }
+
+ private:
+  WiFiManager& manager_;
+  countdown::Log& log_;
+};
+
+class RedirectUnknownRequest : public RequestHandler {
+ public:
+  explicit RedirectUnknownRequest(countdown::Log& log) : log_(log) {}
+
+  bool canHandle(HTTPMethod, String) override { return true; }
+  bool handle(WebServer& server, HTTPMethod, String) override {
+    redirectToPortal(server, log_);
+    return true;
+  }
+
+ private:
+  countdown::Log& log_;
 };
 
 // The boards are given away, so the portal only offers Wi-Fi set-up. Hiding the menu entries isn't
@@ -107,6 +135,8 @@ class RedirectToPortal : public RequestHandler {
 // (/erase), restart (/r), and exit/close (/exit, /close).
 class HideMaintenancePages : public RequestHandler {
  public:
+  explicit HideMaintenancePages(countdown::Log& log) : log_(log) {}
+
   bool canHandle(HTTPMethod, String uri) override {
     for (const char* page : {"/info", "/u", "/update", "/erase", "/r", "/exit", "/close"}) {
       if (uri == page) {
@@ -116,9 +146,12 @@ class HideMaintenancePages : public RequestHandler {
     return false;
   }
   bool handle(WebServer& server, HTTPMethod, String) override {
-    redirectToPortal(server);
+    redirectToPortal(server, log_);
     return true;
   }
+
+ private:
+  countdown::Log& log_;
 };
 
 // Answers iOS's "is there internet?" checks with the page it expects, so it doesn't open its
@@ -167,9 +200,10 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   const String head = String(kLogoStyle) + kHideNoApScript;
   manager.setCustomHeadElement(head.c_str());
   // Runs before WiFiManager registers its own pages, so this handler is asked first.
-  manager.setWebServerCallback([&manager]() {
+  manager.setWebServerCallback([&manager, &log]() {
     manager.server->addHandler(new AppleProbeSuccess(manager));
-    manager.server->addHandler(new HideMaintenancePages());
+    manager.server->addHandler(new HideMaintenancePages(log));
+    manager.server->addHandler(new RedirectToPortal(manager, log));
   });
   std::vector<const char*> menu = {"wifi"};
   manager.setMenu(menu);
@@ -178,6 +212,8 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   // Non-blocking, so the loop below can stop the portal as soon as Wi-Fi is up.
   manager.setConfigPortalBlocking(false);
   manager.setConfigPortalTimeout(kPortalTimeoutS);
+  // WiFiManager's built-in redirect points to the AP IP; RedirectToPortal sends requests to mDNS.
+  manager.setCaptivePortalEnable(false);
   // Without a save timeout WiFiManager waits with WiFi.waitForConnectResult() too, so a network
   // that isn't found on the first try fails the save and the portal shows "No AP set".
   manager.setSaveConnectTimeout(kConnectTimeoutMs / 1000);
@@ -191,8 +227,14 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
       [&manager](arduino_event_id_t, arduino_event_info_t) { manager.onScanDone(WiFi.scanComplete()); },
       ARDUINO_EVENT_WIFI_SCAN_DONE);
   const String name = portalName();
-  log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() + " and browse to 192.168.4.1");
+  log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() + " and browse to http://" +
+           kDeviceName + ".local/wifi (or 192.168.4.1)");
   manager.startConfigPortal(name.c_str());
+  // Registered after WiFiManager's routes, so only otherwise-unknown paths reach this handler.
+  manager.server->addHandler(new RedirectUnknownRequest(log));
+  if (!MDNS.begin(kDeviceName)) {
+    log.warning("Couldn't start mDNS; the set-up redirect to " + std::string(kDeviceName) + ".local may not resolve");
+  }
   std::string secret = store.get(countdown::kDeviceSecretKey).value_or("");
   if (secret.empty()) {
     secret = countdown::tokenUrlsafe(random);
@@ -207,9 +249,6 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   pairingUrl += "/pair?t=" + countdown::pairingToken(secret, sha256Hex);
   const String headWithRedirect = head + redirectScript(pairingUrl);
   manager.setCustomHeadElement(headWithRedirect.c_str());
-  // Added after WiFiManager's own handlers, so it only gets the URLs they don't match.
-  manager.server->addHandler(new RedirectToPortal());
-
   while (!manager.process() && WiFi.status() != WL_CONNECTED) {
     if (!manager.getConfigPortalActive()) {
       log.error("Nobody set up Wi-Fi in time; restarting");
@@ -221,6 +260,7 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
     manager.stopConfigPortal();
   }
   WiFi.removeEvent(scanEvent);
+  MDNS.end();
   WiFi.mode(WIFI_STA);  // the portal's access point off for good
   store.put(kSsidKey, WiFi.SSID().c_str());
   store.put(kPasswordKey, manager.getWiFiPass().c_str());
