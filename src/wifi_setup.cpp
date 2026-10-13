@@ -202,7 +202,9 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   while (!pairingUrl.empty() && pairingUrl.back() == '/') {
     pairingUrl.pop_back();
   }
-  pairingUrl += "/pair#" + countdown::pairingToken(secret, sha256Hex);
+  // In the query, not the fragment: a fragment never reaches the broker, so it is lost when the login
+  // proxy sends a signed-out user to the sign-in or sign-up and back (the broker accepts either form).
+  pairingUrl += "/pair?t=" + countdown::pairingToken(secret, sha256Hex);
   const String headWithRedirect = head + redirectScript(pairingUrl);
   manager.setCustomHeadElement(headWithRedirect.c_str());
   // Added after WiFiManager's own handlers, so it only gets the URLs they don't match.
