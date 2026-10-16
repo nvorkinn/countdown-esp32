@@ -81,7 +81,7 @@ void test_a_frame_is_logged_with_its_size() {
 
   TEST_ASSERT_EQUAL(2, c.board.log.lines.size());
   TEST_ASSERT_TRUE(c.board.log.lines.back().first == LogLevel::Info);
-  TEST_ASSERT_EQUAL_STD_STRING("Got a frame (48000 bytes) and sleeping for 30 seconds",
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\"",
                                c.board.log.lines.back().second);
   TEST_ASSERT_EQUAL(30, c.board.sleeper.sleeps.back());
 }
@@ -124,8 +124,8 @@ void test_nothing_to_draw_logs_the_wait_as_asked(int status) {
 
   TEST_ASSERT_EQUAL(2, c.board.log.lines.size());
   TEST_ASSERT_TRUE(c.board.log.lines.back().first == LogLevel::Info);
-  TEST_ASSERT_EQUAL_STD_STRING("Got HTTP " + std::to_string(status) + " from " + kFrameUrl +
-                                 "; sleeping for 12 seconds", c.board.log.lines.back().second);
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP " + std::to_string(status) +
+                                 " (0 bytes), Retry-After: \"12\"", c.board.log.lines.back().second);
   TEST_ASSERT_EQUAL(1, c.board.sleeper.sleeps.size());
   TEST_ASSERT_TRUE(c.board.display.shown.empty());
   TEST_ASSERT_EQUAL(12, c.board.sleeper.sleeps[0]);
@@ -146,23 +146,21 @@ void test_a_poll_without_retry_after_waits_the_default() {
   c.client.tick();
 
   TEST_ASSERT_EQUAL(kDefaultRetryS, c.board.sleeper.sleeps[0]);
-  TEST_ASSERT_EQUAL_STD_STRING(std::string("Got HTTP 304 from ") + kFrameUrl + "; sleeping for " +
-                                   std::to_string(kDefaultRetryS) + " seconds",
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 304 (0 bytes), Retry-After: <missing>",
                                c.board.log.lines.back().second);
 }
 
-void test_a_poll_logs_the_effective_wait() {
-  for (const std::string header : {"invalid", "0", "3600"}) {
+void test_a_poll_logs_the_raw_header_and_uses_the_effective_wait() {
+  for (const std::string header : {"invalid", "", "0", "3600"}) {
     Client c;
     c.board.http.reply(201);
     c.board.http.reply(304, header);
 
     c.client.tick();
 
-    const int expected = header == "invalid" ? kDefaultRetryS : std::stoi(header);
+    const int expected = header == "invalid" || header.empty() ? kDefaultRetryS : std::stoi(header);
     TEST_ASSERT_EQUAL(expected, c.board.sleeper.sleeps[0]);
-    TEST_ASSERT_EQUAL_STD_STRING(std::string("Got HTTP 304 from ") + kFrameUrl + "; sleeping for " +
-                                     std::to_string(expected) + " seconds",
+    TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 304 (0 bytes), Retry-After: \"" + header + "\"",
                                  c.board.log.lines.back().second);
   }
 }
@@ -178,7 +176,7 @@ void test_401_registers_again_with_the_same_secret_on_the_next_tick() {
   TEST_ASSERT_TRUE(c.board.sleeper.sleeps.empty());  // straight back to registering
   TEST_ASSERT_EQUAL(2, c.board.log.lines.size());
   TEST_ASSERT_TRUE(c.board.log.lines.back().first == LogLevel::Warning);
-  TEST_ASSERT_EQUAL_STD_STRING(std::string("Got HTTP 401 from ") + kFrameUrl + "; re-registering immediately",
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 401 (0 bytes), Retry-After: \"30\"",
                                c.board.log.lines.back().second);
   c.client.tick();
 
@@ -198,7 +196,7 @@ void test_an_unexpected_status_is_logged_and_waits_as_asked() {
 
   TEST_ASSERT_EQUAL(2, c.board.log.lines.size());
   TEST_ASSERT_TRUE(c.board.log.lines.back().first == LogLevel::Warning);
-  TEST_ASSERT_EQUAL_STD_STRING(std::string("Unexpected 500 from ") + kFrameUrl + "; sleeping for 9 seconds",
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 500 (0 bytes), Retry-After: \"9\"",
                                c.board.log.lines.back().second);
   TEST_ASSERT_EQUAL(9, c.board.sleeper.sleeps[0]);
   TEST_ASSERT_EQUAL(1, c.count(kRegisterUrl));
@@ -276,10 +274,10 @@ void test_logs_the_broker_answered_are_not_sent_again() {
 
   TEST_ASSERT_NOT_EQUAL(std::string::npos, c.board.http.requests[1].body.find("Registered with the broker"));
   TEST_ASSERT_EQUAL(std::string::npos, c.lastBody().find("Registered with the broker"));
-  TEST_ASSERT_NOT_EQUAL(std::string::npos, c.lastBody().find(std::string("Got HTTP 202 from ") + kFrameUrl +
-                                                          "; sleeping for 60 seconds"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, c.lastBody().find(
+      "Frame response: HTTP 202 (0 bytes), Retry-After: <missing>"));
   TEST_ASSERT_EQUAL(1, c.board.logs.entries().size());
-  TEST_ASSERT_EQUAL_STD_STRING(std::string("Got HTTP 304 from ") + kFrameUrl + "; sleeping for 60 seconds",
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 304 (0 bytes), Retry-After: <missing>",
                                c.board.logs.entries().back().message);
 }
 
@@ -294,7 +292,7 @@ void test_lines_logged_after_the_answer_go_with_the_next_poll() {
 
   TEST_ASSERT_EQUAL(std::string::npos, c.lastBody().find("Registered with the broker"));
   TEST_ASSERT_NOT_EQUAL(std::string::npos, c.lastBody().find(
-      R"("level":"info","_msg":"Got a frame (5 bytes) and sleeping for 30 seconds")"));
+      R"("level":"info","_msg":"Frame response: HTTP 200 (5 bytes), Retry-After: \"30\"")"));
 }
 
 void test_logs_are_kept_until_the_broker_answers(void (*notAnswered)(FakeHttp&)) {
@@ -403,7 +401,7 @@ void runFrameClientTests() {
   RUN_TEST(test_304_logs_the_wait);
   RUN_TEST(test_404_logs_the_wait);
   RUN_TEST(test_a_poll_without_retry_after_waits_the_default);
-  RUN_TEST(test_a_poll_logs_the_effective_wait);
+  RUN_TEST(test_a_poll_logs_the_raw_header_and_uses_the_effective_wait);
   RUN_TEST(test_401_registers_again_with_the_same_secret_on_the_next_tick);
   RUN_TEST(test_an_unexpected_status_is_logged_and_waits_as_asked);
   RUN_TEST(test_an_unreachable_broker_is_polled_again_after_the_default);

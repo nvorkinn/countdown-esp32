@@ -76,14 +76,16 @@ void FrameClient::tick() {
   // Answered as a poll should be, so the broker has the logs. Anything logged from here on (the
   // lines below included) goes with the next poll.
   const int status = response.status;
-  if (status == 200 || status == 202 || status == 304 || status == 404) {
+  const bool accepted = status == 200 || status == 202 || status == 304 || status == 404;
+  if (accepted) {
     log_.dropThrough(sentThrough);
   }
-  const int delay = retryAfterSeconds(response.retryAfter);
-  const std::string wait = "sleeping for " + std::to_string(delay) + " seconds";
+  log_.write(accepted ? LogLevel::Info : LogLevel::Warning,
+             "Frame response: HTTP " + std::to_string(status) + " (" +
+                 std::to_string(response.body.size()) + " bytes), Retry-After: " +
+                 (response.retryAfter ? jsonString(*response.retryAfter) : "<missing>"));
   switch (response.status) {
     case 200:
-      log_.info("Got a frame (" + std::to_string(response.body.size()) + " bytes) and " + wait);
       // Where the Pi's client would crash (and systemd restart it), this logs and carries on
       // polling: the next frame the broker sends is drawn as usual.
       if (display_.show(response.body)) {
@@ -93,20 +95,13 @@ void FrameClient::tick() {
         log_.error("Couldn't draw the frame");
       }
       break;
-    case 202:  // Not matched with a renderer yet
-    case 304:  // Nothing has changed since last poll
-    case 404:  // Matched, but nothing rendered yet
-      log_.info("Got HTTP " + std::to_string(response.status) + " from " + url + "; " + wait);
-      break;
     case 401:  // The broker doesn't know the secret (dropped from the pool, or unlinked)
-      log_.warning("Got HTTP 401 from " + url + "; re-registering immediately");
       registered_ = false;
       return;
     default:
-      log_.warning("Unexpected " + std::to_string(response.status) + " from " + url + "; " + wait);
       break;
   }
-  sleeper_.sleepSeconds(delay);
+  sleeper_.sleepSeconds(retryAfterSeconds(response.retryAfter));
 }
 
 }  // namespace countdown
