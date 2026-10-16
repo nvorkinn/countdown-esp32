@@ -115,7 +115,12 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    `device_secret`, and registers with the broker, sending the selected panel's size (`width` and `height`,
    800x480 or 1872x1404). It registers again on every boot, with the same secret.
 3. It polls `/api/frame` with a `POST`, waiting as long as the broker's `Retry-After` says (60 seconds
-   if it doesn't). The broker answers 202 until it matches the display with a renderer. See
+   if it is missing or invalid). Each call logs its result and the sleep duration to serial and
+   buffers the line for the next poll: `Got a frame (48000 bytes) and sleeping for 30 seconds`
+   for a 200, or the HTTP status and sleep duration for other responses. A 401 logs that it is
+   re-registering immediately instead of sleeping; connection failures log the error and retry delay.
+   Registration retries log `Sleeping for N seconds` before each wait.
+   The broker answers 202 until it matches the display with a renderer. See
    [What each poll sends](#what-each-poll-sends).
 4. Each new frame (a `200`) is drawn on the panel: wake it, send the frame, refresh (timing depends on the panel),
    and put it back into deep sleep, as `countdown-client` does on the Pi.
@@ -129,7 +134,7 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 {
   "role": "display",
   "metrics": "esp32,device_id={device_id} uptime_s=3600i,free_heap=182344i,min_free_heap=150212i,free_psram=4100000i,wifi_rssi=-61i,reset_reason=1i,logs_dropped=0i",
-  "logs": [{"service": "countdown-esp32", "host": "countdown-esp-nikolai", "level": "info", "_msg": "Got a frame (48000 bytes)", "uptime_ms": 3599012}]
+  "logs": [{"service": "countdown-esp32", "host": "countdown-esp-nikolai", "level": "info", "_msg": "Got a frame (48000 bytes) and sleeping for 30 seconds", "uptime_ms": 3599012}]
 }
 ```
 

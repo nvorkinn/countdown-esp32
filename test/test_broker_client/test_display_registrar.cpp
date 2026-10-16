@@ -112,6 +112,7 @@ void test_it_waits_as_long_as_the_broker_asks(int status) {
   TEST_ASSERT_EQUAL(2, board.http.requests.size());
   TEST_ASSERT_EQUAL(1, board.sleeper.sleeps.size());
   TEST_ASSERT_EQUAL(17, board.sleeper.sleeps[0]);
+  TEST_ASSERT_TRUE(board.log.has(LogLevel::Info, "Sleeping for 17 seconds"));
 }
 
 void test_429_waits_for_retry_after() { test_it_waits_as_long_as_the_broker_asks(429); }
@@ -125,6 +126,7 @@ void test_429_without_retry_after_waits_the_default() {
   board.registrar().registerDevice();
 
   TEST_ASSERT_EQUAL(kDefaultRetryS, board.sleeper.sleeps[0]);
+  TEST_ASSERT_TRUE(board.log.has(LogLevel::Info, "Sleeping for " + std::to_string(kDefaultRetryS) + " seconds"));
 }
 
 void test_409_registers_a_new_secret_straight_away() {
@@ -179,6 +181,7 @@ void test_an_unreachable_broker_is_retried_after_the_default() {
   TEST_ASSERT_EQUAL(2, board.sleeper.sleeps.size());
   TEST_ASSERT_EQUAL(kDefaultRetryS, board.sleeper.sleeps[0]);
   TEST_ASSERT_TRUE(board.log.has(LogLevel::Warning, "Couldn't register with the broker: connection refused"));
+  TEST_ASSERT_TRUE(board.log.has(LogLevel::Info, "Sleeping for " + std::to_string(kDefaultRetryS) + " seconds"));
 }
 
 void test_retries_keep_the_same_secret() {
