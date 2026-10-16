@@ -26,6 +26,7 @@ void DisplayRegistrar::registerDevice() {
     const HttpResponse response = http_.request("POST", url, body, secret_, "");
     if (!response.sent) {
       log_.warning("Couldn't register with the broker: " + response.error);
+      log_.info("Sleeping for " + std::to_string(kDefaultRetryS) + " seconds");
       sleeper_.sleepSeconds(kDefaultRetryS);
       continue;
     }
@@ -52,6 +53,7 @@ void DisplayRegistrar::registerDevice() {
         log_.warning("Unexpected " + std::to_string(response.status) + " from " + url);
         break;
     }
+    log_.info("Sleeping for " + std::to_string(delay) + " seconds");
     sleeper_.sleepSeconds(delay);
   }
 }

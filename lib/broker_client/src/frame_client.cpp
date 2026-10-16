@@ -68,19 +68,24 @@ void FrameClient::tick() {
   const uint64_t sentThrough = logs.empty() ? 0 : logs.back().seq;
   const HttpResponse response = http_.request("POST", url, pollBody(metrics, logs, service_, host_), registrar_.secret(), etag_);
   if (!response.sent) {
-    log_.warning("Couldn't fetch the frame: " + response.error);
+    log_.warning("Couldn't fetch the frame: " + response.error + "; sleeping for " +
+                 std::to_string(kDefaultRetryS) + " seconds");
     sleeper_.sleepSeconds(kDefaultRetryS);
     return;
   }
   // Answered as a poll should be, so the broker has the logs. Anything logged from here on (the
   // lines below included) goes with the next poll.
   const int status = response.status;
-  if (status == 200 || status == 202 || status == 304 || status == 404) {
+  const bool accepted = status == 200 || status == 202 || status == 304 || status == 404;
+  if (accepted) {
     log_.dropThrough(sentThrough);
   }
+  log_.write(accepted ? LogLevel::Info : LogLevel::Warning,
+             "Frame response: HTTP " + std::to_string(status) + " (" +
+                 std::to_string(response.body.size()) + " bytes), Retry-After: " +
+                 (response.retryAfter ? jsonString(*response.retryAfter) + " seconds" : "<missing>"));
   switch (response.status) {
     case 200:
-      log_.info("Got a frame (" + std::to_string(response.body.size()) + " bytes)");
       // Where the Pi's client would crash (and systemd restart it), this logs and carries on
       // polling: the next frame the broker sends is drawn as usual.
       if (display_.show(response.body)) {
@@ -90,15 +95,10 @@ void FrameClient::tick() {
         log_.error("Couldn't draw the frame");
       }
       break;
-    case 202:  // Not matched with a renderer yet
-    case 304:  // Nothing has changed since last poll
-    case 404:  // Matched, but nothing rendered yet
-      break;
     case 401:  // The broker doesn't know the secret (dropped from the pool, or unlinked)
       registered_ = false;
       return;
     default:
-      log_.warning("Unexpected " + std::to_string(response.status) + " from " + url);
       break;
   }
   sleeper_.sleepSeconds(retryAfterSeconds(response.retryAfter));
