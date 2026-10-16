@@ -81,7 +81,7 @@ void test_a_frame_is_logged_with_its_size() {
 
   TEST_ASSERT_EQUAL(2, c.board.log.lines.size());
   TEST_ASSERT_TRUE(c.board.log.lines.back().first == LogLevel::Info);
-  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\"",
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\" seconds",
                                c.board.log.lines.back().second);
   TEST_ASSERT_EQUAL(30, c.board.sleeper.sleeps.back());
 }
@@ -125,7 +125,7 @@ void test_nothing_to_draw_logs_the_wait_as_asked(int status) {
   TEST_ASSERT_EQUAL(2, c.board.log.lines.size());
   TEST_ASSERT_TRUE(c.board.log.lines.back().first == LogLevel::Info);
   TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP " + std::to_string(status) +
-                                 " (0 bytes), Retry-After: \"12\"", c.board.log.lines.back().second);
+                                 " (0 bytes), Retry-After: \"12\" seconds", c.board.log.lines.back().second);
   TEST_ASSERT_EQUAL(1, c.board.sleeper.sleeps.size());
   TEST_ASSERT_TRUE(c.board.display.shown.empty());
   TEST_ASSERT_EQUAL(12, c.board.sleeper.sleeps[0]);
@@ -160,7 +160,7 @@ void test_a_poll_logs_the_raw_header_and_uses_the_effective_wait() {
 
     const int expected = header == "invalid" || header.empty() ? kDefaultRetryS : std::stoi(header);
     TEST_ASSERT_EQUAL(expected, c.board.sleeper.sleeps[0]);
-    TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 304 (0 bytes), Retry-After: \"" + header + "\"",
+    TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 304 (0 bytes), Retry-After: \"" + header + "\" seconds",
                                  c.board.log.lines.back().second);
   }
 }
@@ -176,7 +176,7 @@ void test_401_registers_again_with_the_same_secret_on_the_next_tick() {
   TEST_ASSERT_TRUE(c.board.sleeper.sleeps.empty());  // straight back to registering
   TEST_ASSERT_EQUAL(2, c.board.log.lines.size());
   TEST_ASSERT_TRUE(c.board.log.lines.back().first == LogLevel::Warning);
-  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 401 (0 bytes), Retry-After: \"30\"",
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 401 (0 bytes), Retry-After: \"30\" seconds",
                                c.board.log.lines.back().second);
   c.client.tick();
 
@@ -196,7 +196,7 @@ void test_an_unexpected_status_is_logged_and_waits_as_asked() {
 
   TEST_ASSERT_EQUAL(2, c.board.log.lines.size());
   TEST_ASSERT_TRUE(c.board.log.lines.back().first == LogLevel::Warning);
-  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 500 (0 bytes), Retry-After: \"9\"",
+  TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 500 (0 bytes), Retry-After: \"9\" seconds",
                                c.board.log.lines.back().second);
   TEST_ASSERT_EQUAL(9, c.board.sleeper.sleeps[0]);
   TEST_ASSERT_EQUAL(1, c.count(kRegisterUrl));
@@ -292,7 +292,7 @@ void test_lines_logged_after_the_answer_go_with_the_next_poll() {
 
   TEST_ASSERT_EQUAL(std::string::npos, c.lastBody().find("Registered with the broker"));
   TEST_ASSERT_NOT_EQUAL(std::string::npos, c.lastBody().find(
-      R"("level":"info","_msg":"Frame response: HTTP 200 (5 bytes), Retry-After: \"30\"")"));
+      R"("level":"info","_msg":"Frame response: HTTP 200 (5 bytes), Retry-After: \"30\" seconds")"));
 }
 
 void test_logs_are_kept_until_the_broker_answers(void (*notAnswered)(FakeHttp&)) {

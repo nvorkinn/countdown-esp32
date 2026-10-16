@@ -116,7 +116,7 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    800x480 or 1872x1404). It registers again on every boot, with the same secret.
 3. It polls `/api/frame` with a `POST`, waiting as long as the broker's `Retry-After` says (60 seconds
    if it is missing or invalid). Every HTTP response is logged in the same format to serial and
-   buffered for the next poll: `Frame response: HTTP 200 (48000 bytes), Retry-After: "30"`.
+   buffered for the next poll: `Frame response: HTTP 200 (48000 bytes), Retry-After: "30" seconds`.
    The header is quoted as received, or shown as `<missing>` when absent. A 401 triggers immediate
    re-registration without sleeping, regardless of the header. Connection failures log the error and retry delay.
    Registration retries log `Sleeping for N seconds` before each wait.
@@ -134,7 +134,7 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 {
   "role": "display",
   "metrics": "esp32,device_id={device_id} uptime_s=3600i,free_heap=182344i,min_free_heap=150212i,free_psram=4100000i,wifi_rssi=-61i,reset_reason=1i,logs_dropped=0i",
-  "logs": [{"service": "countdown-esp32", "host": "countdown-esp-nikolai", "level": "info", "_msg": "Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\"", "uptime_ms": 3599012}]
+  "logs": [{"service": "countdown-esp32", "host": "countdown-esp-nikolai", "level": "info", "_msg": "Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\" seconds", "uptime_ms": 3599012}]
 }
 ```
 

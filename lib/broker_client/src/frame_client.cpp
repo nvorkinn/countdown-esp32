@@ -83,7 +83,7 @@ void FrameClient::tick() {
   log_.write(accepted ? LogLevel::Info : LogLevel::Warning,
              "Frame response: HTTP " + std::to_string(status) + " (" +
                  std::to_string(response.body.size()) + " bytes), Retry-After: " +
-                 (response.retryAfter ? jsonString(*response.retryAfter) : "<missing>"));
+                 (response.retryAfter ? jsonString(*response.retryAfter) + " seconds" : "<missing>"));
   switch (response.status) {
     case 200:
       // Where the Pi's client would crash (and systemd restart it), this logs and carries on
