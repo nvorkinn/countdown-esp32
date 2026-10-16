@@ -65,7 +65,7 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Build firmware
-        run: pio run -e esp-wrover-kit
+        run: pio run -e esp-wrover-kit -e esp-wrover-kit-it8951
 
       - name: Collect binaries
         run: |
@@ -74,6 +74,7 @@ jobs:
           for dir in .pio/build/*/; do
             env=$(basename "$dir")
             cp "$dir/firmware.bin" "dist/countdown-esp32-${env}-${ref}.bin"
+            cp "$dir/firmware-merged.bin" "dist/countdown-esp32-${env}-${ref}-merged.bin"
           done
 
       - uses: actions/upload-artifact@v4

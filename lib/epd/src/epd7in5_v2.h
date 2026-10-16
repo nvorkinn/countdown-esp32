@@ -8,10 +8,11 @@
 #include <initializer_list>
 
 #include "epd_bus.h"
+#include "epd_panel.h"
 
 namespace countdown {
 
-class Epd7in5V2 {
+class Epd7in5V2 : public EpdPanel {
  public:
   static constexpr int kWidth = 800;
   static constexpr int kHeight = 480;
@@ -27,12 +28,15 @@ class Epd7in5V2 {
 
   explicit Epd7in5V2(EpdBus& bus) : bus_(bus) {}
 
+  int width() const override { return kWidth; }
+  int height() const override { return kHeight; }
+
   // Each returns false when the panel stops answering (BUSY never releases); the HAT is then
   // powered off, so the next init() starts from a clean slate.
-  bool init();
+  bool init() override;
   // `frame` is kFrameBytes long.
-  bool display(const uint8_t* frame);
-  bool sleep();
+  bool display(const uint8_t* frame) override;
+  bool sleep() override;
 
  private:
   void reset();

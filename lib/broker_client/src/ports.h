@@ -12,8 +12,8 @@
 namespace countdown {
 
 struct HttpResponse {
-  // False when no response came back at all (no network, DNS, TLS or a timeout): the
-  // equivalent of requests raising a RequestException. `error` then says why.
+  // False when no complete, usable response came back (network/TLS failure, timeout,
+  // oversized body or allocation failure). `error` then says why.
   bool sent = false;
   std::string error;
   int status = 0;

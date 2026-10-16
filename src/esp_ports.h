@@ -25,12 +25,13 @@ class NvsStore : public countdown::Store {
 // HTTPS, trusting only `rootCerts` (PEM, one or more).
 class EspHttp : public countdown::Http {
  public:
-  explicit EspHttp(const char* rootCerts);
+  EspHttp(const char* rootCerts, size_t maxBodyBytes);
   countdown::HttpResponse request(const std::string& method, const std::string& url, const std::string& jsonBody,
                                   const std::string& bearer, const std::string& ifNoneMatch) override;
 
  private:
   WiFiClientSecure client_;
+  size_t maxBodyBytes_;
 };
 
 // The hardware RNG: cryptographically secure while Wi-Fi (or Bluetooth) is on.

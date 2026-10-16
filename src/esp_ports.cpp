@@ -8,6 +8,7 @@
 
 #include <vector>
 
+#include "response_body.h"
 #include "retry.h"
 
 NvsStore::NvsStore(const char* name) { preferences_.begin(name); }
@@ -25,18 +26,13 @@ void NvsStore::put(const std::string& key, const std::string& value) {
 
 namespace {
 
-// A Stream that appends whatever HTTPClient writes to it to a vector, so a response body of any
-// size (or chunked) can be read with writeToStream.
+// Stream HTTPClient's fixed-length or chunked body into the bounded receiver.
 class VectorStream : public Stream {
  public:
-  explicit VectorStream(std::vector<uint8_t>& out) : out_(out) {}
-  size_t write(uint8_t byte) override {
-    out_.push_back(byte);
-    return 1;
-  }
+  explicit VectorStream(countdown::ResponseBody& out) : out_(out) {}
+  size_t write(uint8_t byte) override { return out_.append(&byte, 1); }
   size_t write(const uint8_t* buffer, size_t size) override {
-    out_.insert(out_.end(), buffer, buffer + size);
-    return size;
+    return out_.append(buffer, size);
   }
   int available() override { return 0; }
   int read() override { return -1; }
@@ -44,17 +40,23 @@ class VectorStream : public Stream {
   void flush() override {}
 
  private:
-  std::vector<uint8_t>& out_;
+  countdown::ResponseBody& out_;
 };
 
 }  // namespace
 
-EspHttp::EspHttp(const char* rootCerts) { client_.setCACert(rootCerts); }
+EspHttp::EspHttp(const char* rootCerts, size_t maxBodyBytes) : maxBodyBytes_(maxBodyBytes) {
+  client_.setCACert(rootCerts);
+}
 
 countdown::HttpResponse EspHttp::request(const std::string& method, const std::string& url,
                                          const std::string& jsonBody, const std::string& bearer,
                                          const std::string& ifNoneMatch) {
   countdown::HttpResponse response;
+  if (maxBodyBytes_ > 128 * 1024 && !psramFound()) {
+    response.error = "This panel requires working PSRAM for its framebuffer";
+    return response;
+  }
   HTTPClient http;
   http.setConnectTimeout(countdown::kRequestTimeoutS * 1000);
   http.setTimeout(countdown::kRequestTimeoutS * 1000);
@@ -77,7 +79,6 @@ countdown::HttpResponse EspHttp::request(const std::string& method, const std::s
     http.end();
     return response;
   }
-  response.sent = true;
   response.status = status;
   if (http.hasHeader("Retry-After")) {
     response.retryAfter = http.header("Retry-After").c_str();
@@ -87,12 +88,22 @@ countdown::HttpResponse EspHttp::request(const std::string& method, const std::s
   }
   const int size = http.getSize();
   if (size != 0) {
-    if (size > 0) {
-      response.body.reserve(size);
+    countdown::ResponseBody buffer(response.body, maxBodyBytes_);
+    if (size > 0 && !buffer.reserve(static_cast<size_t>(size))) {
+      response.error = buffer.error();
+      http.end();
+      return response;
     }
-    VectorStream body(response.body);
-    http.writeToStream(&body);
+    VectorStream body(buffer);
+    const int received = http.writeToStream(&body);
+    if (buffer.error() || received < 0 || (size > 0 && received != size)) {
+      response.error = buffer.error() ? buffer.error() : "Couldn't read the complete HTTP response";
+      response.body.clear();
+      http.end();
+      return response;
+    }
   }
+  response.sent = true;
   http.end();
   return response;
 }
