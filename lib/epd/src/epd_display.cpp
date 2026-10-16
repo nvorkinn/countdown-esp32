@@ -5,9 +5,9 @@
 namespace countdown {
 
 bool EpdDisplay::show(const std::vector<uint8_t>& frame) {
-  if (frame.size() != Epd7in5V2::kFrameBytes) {
+  if (frame.size() != panel_.frameBytes()) {
     log_.error("The frame is " + std::to_string(frame.size()) + " bytes; the panel takes " +
-               std::to_string(Epd7in5V2::kFrameBytes));
+               std::to_string(panel_.frameBytes()));
     return false;
   }
   if (!panel_.init()) {

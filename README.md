@@ -4,7 +4,7 @@ ESP32 firmware for the countdown, built with [PlatformIO](https://platformio.org
 
 It is a countdown display: the ESP32 port of `countdown-client` (`../countdown/client`). It registers
 with [auth-broker](https://github.com/nvorkinn/auth-broker) as a `display`, then polls `/api/frame` for
-frames that a renderer has drawn and puts them on a Waveshare 7.5" e-paper panel, the same one the Pi uses.
+frames that a renderer has drawn and puts them on the selected Waveshare e-paper panel.
 Each poll also carries the board's logs and metrics to the broker.
 
 ## Setup
@@ -25,6 +25,7 @@ Run these from this directory (`countdown-esp`):
 
 ```sh
 pio run -e esp-wrover-kit     # build the firmware
+pio run -e esp-wrover-kit-it8951 # build for the 7.8" 1872x1404 IT8951 HAT
 pio run -t upload             # build and flash the board on the default serial port
 pio device monitor            # open the serial monitor (115200 baud)
 pio test -e native            # run the unit tests in test/ on this machine
@@ -37,7 +38,58 @@ The broker URL is a build flag, `BROKER_URL` in `platformio.ini`. To point a bui
 PLATFORMIO_BUILD_FLAGS='-DBROKER_URL=\"http://192.168.1.10:8000\"' pio run -t upload
 ```
 
-The firmware image ends up at `.pio/build/esp-wrover-kit/firmware.bin`.
+Each build writes `.pio/build/<environment>/firmware.bin` (application only) and
+`firmware-merged.bin` (standalone flash image).
+
+### Selecting a screen
+
+| PlatformIO environment | Panel | Broker dimensions | Monochrome frame |
+|------------------------|-------|-------------------|------------------|
+| `esp-wrover-kit` (default) | Waveshare 7.5" V2 | 800x480 | 48,000 bytes |
+| `esp-wrover-kit-it8951` | Waveshare 7.8" IT8951 HAT | 1872x1404 | 328,536 bytes |
+
+Use the same `-e` option when uploading, for example `pio run -e esp-wrover-kit-it8951 -t upload`.
+Both environments target the ESP32-WROVER board; the 7.8" build requires working PSRAM. Large heap
+allocations explicitly use the PSRAM-enabled allocator. HTTP bodies are bounded to the panel's frame
+size, including chunked responses, and memory/read failures are logged rather than displaying a partial frame.
+
+Panel selection is compiled in: each environment chooses exactly one `EPD_PANEL_*` flag and its wiring.
+Registration and frame validation get their dimensions from the same panel object. Polling, provisioning,
+logging and the broker's frame format are unchanged: row-padded, MSB-first, one bit per pixel, 0 black / 1 white.
+The IT8951 driver expands that format into small 8-bpp transfer chunks and uses full GC16 refreshes;
+it does not allocate an expanded framebuffer or rely on firmware-specific fast-refresh modes.
+
+To add another controller, implement `EpdPanel` in `lib/epd/`, select it in `src/main.cpp`, and add a
+PlatformIO environment with the appropriate pins/transport. Dimensions alone cannot make a driver
+compatible with another controller.
+
+### Flashing without PlatformIO
+
+Download the `firmware` artifact from a successful **Firmware** GitHub Actions run, unzip it, and select
+the file matching your board/panel whose name ends in **`-merged.bin`**. The build merges the bootloader,
+partition table, Arduino boot image and application using PlatformIO's actual upload offsets.
+
+In Espressif's Flash Download Tool, select **ESP32**, choose the merged file at address **`0x0`**,
+and use the serial port connected to the board (4 MB flash, DIO, 40 MHz for these builds). A compatible
+browser flasher that accepts a local binary at `0x0` also works. No project checkout or PlatformIO is
+needed on the flashing machine. With esptool v5:
+
+```sh
+python -m esptool --chip esp32 --port /dev/cu.usbserial-XXXX write-flash 0x0 countdown-esp32-esp-wrover-kit-it8951-main-merged.bin
+```
+
+Replace the port and filename with yours; Windows ports look like `COM3`. With esptool v4, use
+`write_flash` instead of `write-flash`. If automatic bootloader entry fails, hold BOOT while starting
+the flash, then release it once connected. Reset the board afterwards.
+
+**Treat merged images as fresh installs:** the padding covers NVS, so flashing one erases saved Wi-Fi
+and the device secret. The board will open its first-boot portal and register a new device. For updates
+that preserve NVS, use PlatformIO upload or flash the matching application-only `firmware.bin` at its
+application offset (`0x10000` for these builds), with the existing matching bootloader/partition layout.
+Do not flash the application-only image at `0x0`.
+
+The broker URL and panel selection are baked into the binary; Wi-Fi credentials and the device secret
+are provisioned on the board, not included in the download.
 
 ### Coverage
 
@@ -60,11 +112,12 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    set-up page opens in its own sheet, with no redirect afterwards. If nobody sets it up within
    5 minutes, the board restarts and tries the saved network again.
 2. It makes a device secret (like Python's `secrets.token_urlsafe(24)`), saves it to NVS as
-   `device_secret`, and registers with the broker, sending the panel's size (`width` and `height`, 800x480). It registers again on every boot, with the same secret.
+   `device_secret`, and registers with the broker, sending the selected panel's size (`width` and `height`,
+   800x480 or 1872x1404). It registers again on every boot, with the same secret.
 3. It polls `/api/frame` with a `POST`, waiting as long as the broker's `Retry-After` says (60 seconds
    if it doesn't). The broker answers 202 until it matches the display with a renderer. See
    [What each poll sends](#what-each-poll-sends).
-4. Each new frame (a `200`) is drawn on the panel: wake it, send the frame, refresh (about 4 seconds),
+4. Each new frame (a `200`) is drawn on the panel: wake it, send the frame, refresh (timing depends on the panel),
    and put it back into deep sleep, as `countdown-client` does on the Pi.
    The board remembers the frame's `ETag` and sends it as `If-None-Match` on later polls, so the broker
    answers `304` with no body until the frame changes. It's kept in memory only: after a restart the
@@ -101,6 +154,8 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 
 ## Connecting the e-paper panel
 
+### 7.5" V2 (default)
+
 The panel is the Waveshare 7.5" V2 (800×480, black and white), driven through Waveshare's
 **e-Paper HAT**, the small board the panel's flat ribbon cable plugs into. On the Pi the HAT sits on the
 pin header. On the ESP32 it's wired up through the 9-pin connector on its side, with the cable Waveshare
@@ -131,18 +186,54 @@ Go by the labels printed on the HAT and on the ESP32 board's edge, not by wire c
 If the panel isn't connected or powered, each frame logs `The e-paper panel didn't answer` after
 10 seconds, and the board carries on polling.
 
+### 7.8" IT8951 HAT
+
+This is a different driver board and protocol, **not** a drop-in replacement for the 7.5" HAT.
+Use the [Waveshare 7.8" IT8951 HAT](https://www.waveshare.com/wiki/7.8inch_e-Paper_HAT),
+not a bare panel without its controller. Connect everything with power off and set the HAT to SPI mode.
+
+| IT8951 HAT | ESP32 | What it does |
+|------------|-------|--------------|
+| 5V | Regulated 5 V supply | HAT power; **not the ESP32's 3V3 output** |
+| GND | GND (shared with supply) | Common ground |
+| MOSI | GPIO 14 | Data to controller |
+| MISO | GPIO 34 | Data from controller (required) |
+| SCK | GPIO 13 | SPI clock |
+| CS | GPIO 15 | Chip select |
+| RST | GPIO 26 | Reset |
+| HRDY | GPIO 25 | Low while controller is busy |
+
+The signals use 3.3 V logic; never apply 5 V to an ESP32 GPIO. Supply enough current for the HAT's
+refresh demand (Waveshare lists about 1.2 W typical). There is no DC or switched PWR connection in this
+environment. Sleeping the controller does not disconnect its external 5 V supply.
+
+**VCOM must match the voltage printed on your panel's ribbon/label.** The default build preserves the
+controller's existing value and logs it in millivolts; it cannot determine whether that value matches
+your physical panel. Check it before use. If needed, add a build flag with the positive magnitude in
+millivolts: a label of `-2.31 V` means `-DIT8951_VCOM_MV=2310` (example only, not a recommended voltage).
+For a one-off build:
+
+```sh
+PLATFORMIO_BUILD_FLAGS='-DIT8951_VCOM_MV=2310' pio run -e esp-wrover-kit-it8951
+```
+
+The driver checks that the HAT reports 1872x1404 before loading an image. HRDY and refresh-status waits
+are bounded; a failure closes SPI and resets the controller so the next poll can try again.
+
+### ESP32 antenna
+
 The board's ESP32-WROVER-IE module has no antenna of its own. Plug a 2.4 GHz antenna into its u.FL
 connector, or Wi-Fi only reaches a few metres.
 
 ## Layout
 
-- `platformio.ini`: build environments: `esp-wrover-kit` (the default) and `native` (the unit tests)
+- `platformio.ini`: build environments: `esp-wrover-kit` (the default), `esp-wrover-kit-it8951` and `native` (unit tests)
 - `lib/broker_client/`: registering and polling for frames, in plain C++ with no Arduino, so it can be
   tested on the host. What it needs from the board (HTTP, NVS, randomness, sleeping, logging, a clock,
   metrics, a display) are the interfaces in `ports.h`. `log_buffer.h` keeps log lines until the broker has them
-- `lib/epd/`: the 7.5" V2 panel driver, ported command for command from
+- `lib/epd/`: the shared `EpdPanel` interface, the 7.8" IT8951 driver, and the 7.5" V2 driver, ported command for command from
   `../countdown/epd/src/countdown_epd/epd7in5_V2.py`. It drives the HAT's wires through the `EpdBus`
-  interface in `epd_bus.h`
+  interface in `epd_bus.h`. IT8951 uses the bidirectional word-oriented `It8951Bus` instead
 - `src/`: the ESP32 side: `main.cpp`, the ports' implementations (`esp_ports.cpp`), the Wi-Fi set-up
   portal (`wifi_setup.cpp`), the HAT's wires over SPI (`esp_epd_bus.cpp`) and the broker's pinned root
   certificates (`root_certs.h`)
@@ -154,4 +245,8 @@ connector, or Wi-Fi only reaches a few metres.
 
 ## CI
 
-`.github/workflows/firmware.yml` runs the native tests (uploading coverage to Codecov under the `countdown-esp` flag) and builds the `esp-wrover-kit` firmware on pushes and pull requests that touch this directory, uploading the `.bin` as a `firmware` artifact. Release tags (`v*`) also build it through `release.yml`, which attaches the binaries to the GitHub release.
+`.github/workflows/firmware.yml` runs the native tests (uploading coverage to Codecov under the
+`countdown-esp32` flag) and builds both panel variants on pushes to `main` and pull requests.
+The `firmware` artifact contains application-only and `-merged.bin` standalone images, with the
+environment and Git ref in each filename. Local builds generate the same merged images via
+`scripts/merge_firmware.py`.

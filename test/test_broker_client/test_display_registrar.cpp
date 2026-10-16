@@ -42,6 +42,16 @@ void test_it_posts_the_display_role_and_secret_with_the_secret_as_bearer() {
   TEST_ASSERT_EQUAL_STD_STRING(kFirstToken, sent.bearer);
 }
 
+void test_registration_uses_the_selected_panel_dimensions() {
+  Board board;
+  board.http.reply(201);
+  DisplayRegistrar registrar(kBrokerUrl, board.store, board.http, board.random, board.sleeper, board.log, 1872, 1404);
+  registrar.registerDevice();
+  TEST_ASSERT_EQUAL_STD_STRING(
+      std::string(R"({"role":"display","secret":")") + kFirstToken + R"(","width":1872,"height":1404})",
+      board.http.requests[0].body);
+}
+
 void test_a_saved_secret_is_reused_and_registered_again() {
   Board board;
   board.store.values[kDeviceSecretKey] = "shh";
@@ -190,6 +200,7 @@ void test_retries_keep_the_same_secret() {
 void runDisplayRegistrarTests() {
   RUN_TEST(test_a_new_device_saves_its_secret_before_sending_it);
   RUN_TEST(test_it_posts_the_display_role_and_secret_with_the_secret_as_bearer);
+  RUN_TEST(test_registration_uses_the_selected_panel_dimensions);
   RUN_TEST(test_a_saved_secret_is_reused_and_registered_again);
   RUN_TEST(test_an_empty_saved_secret_is_replaced);
   RUN_TEST(test_trailing_slashes_are_dropped_from_the_broker_url);

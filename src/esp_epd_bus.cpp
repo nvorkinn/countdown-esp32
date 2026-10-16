@@ -9,7 +9,9 @@ const SPISettings kSpiSettings(4000000, MSBFIRST, SPI_MODE0);
 EspEpdBus::EspEpdBus(const EpdPins& pins) : pins_(pins), spi_(HSPI) {
   pinMode(pins_.cs, OUTPUT);
   digitalWrite(pins_.cs, HIGH);
-  pinMode(pins_.dc, OUTPUT);
+  if (pins_.dc >= 0) {
+    pinMode(pins_.dc, OUTPUT);
+  }
   pinMode(pins_.rst, OUTPUT);
   pinMode(pins_.busy, INPUT);
   if (pins_.pwr >= 0) {
@@ -23,7 +25,7 @@ void EspEpdBus::powerOn() {
     digitalWrite(pins_.pwr, HIGH);
   }
   if (!spiStarted_) {
-    spi_.begin(pins_.clk, -1, pins_.din, -1);  // no MISO: the panel is write-only
+    spi_.begin(pins_.clk, pins_.miso, pins_.din, -1);
     spiStarted_ = true;
   }
 }
@@ -34,7 +36,9 @@ void EspEpdBus::powerOff() {
     spiStarted_ = false;
   }
   digitalWrite(pins_.rst, LOW);
-  digitalWrite(pins_.dc, LOW);
+  if (pins_.dc >= 0) {
+    digitalWrite(pins_.dc, LOW);
+  }
   if (pins_.pwr >= 0) {
     digitalWrite(pins_.pwr, LOW);
   }
@@ -54,10 +58,25 @@ uint32_t EspEpdBus::millis() { return ::millis(); }
 
 void EspEpdBus::write(bool isData, const uint8_t* bytes, size_t length) {
   digitalWrite(pins_.dc, isData ? HIGH : LOW);
-  digitalWrite(pins_.cs, LOW);
-  spi_.beginTransaction(kSpiSettings);
+  beginTransfer();
   // writeBytes, not transferBytes: transferBytes would overwrite the frame with what it reads back.
-  spi_.writeBytes(bytes, length);
-  spi_.endTransaction();
-  digitalWrite(pins_.cs, HIGH);
+  write(bytes, length);
+  endTransfer();
 }
+
+void EspEpdBus::beginTransfer() {
+  spi_.beginTransaction(kSpiSettings);
+  digitalWrite(pins_.cs, LOW);
+}
+
+void EspEpdBus::endTransfer() {
+  digitalWrite(pins_.cs, HIGH);
+  spi_.endTransaction();
+}
+
+uint16_t EspEpdBus::transferWord(uint16_t word) {
+  const uint16_t high = spi_.transfer(word >> 8);
+  return static_cast<uint16_t>((high << 8) | spi_.transfer(word & 0xFF));
+}
+
+void EspEpdBus::write(const uint8_t* bytes, size_t length) { spi_.writeBytes(bytes, length); }
