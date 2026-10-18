@@ -1,5 +1,6 @@
 #include "frame_client.h"
 
+#include <algorithm>
 #include <deque>
 #include <string>
 #include <utility>
@@ -28,6 +29,10 @@ const char* levelName(LogLevel level) {
 // the poll as, so the board never has to claim one.
 constexpr char kMetricsSeriesKey[] = "esp32,device_id={device_id}";
 
+// The shortest wait between polls, so a draw that outlasts the Retry-After (or a Retry-After of 0)
+// doesn't poll again straight away.
+constexpr uint64_t kMinPollWaitMs = 1000;
+
 // {"role":"display","metrics":"<line protocol>","logs":[{"service":...,"host":...,"level":...,"_msg":...,"uptime_ms":...},...]}
 std::string pollBody(const std::vector<Metric>& metrics, const std::deque<LogEntry>& logs, const std::string& service,
                      const std::string& host) {
@@ -46,11 +51,12 @@ std::string pollBody(const std::vector<Metric>& metrics, const std::deque<LogEnt
 }  // namespace
 
 FrameClient::FrameClient(DisplayRegistrar& registrar, Http& http, Display& display, Sleeper& sleeper,
-                         LogBuffer& log, Metrics& metrics, std::string service, std::string host)
+                         Clock& clock, LogBuffer& log, Metrics& metrics, std::string service, std::string host)
     : registrar_(registrar),
       http_(http),
       display_(display),
       sleeper_(sleeper),
+      clock_(clock),
       log_(log),
       metrics_(metrics),
       service_(std::move(service)),
@@ -67,6 +73,8 @@ void FrameClient::tick() {
   const std::deque<LogEntry>& logs = log_.entries();
   const uint64_t sentThrough = logs.empty() ? 0 : logs.back().seq;
   const HttpResponse response = http_.request("POST", url, pollBody(metrics, logs, service_, host_), registrar_.secret(), etag_);
+  // The broker's Retry-After counts from here, not from after the frame is drawn.
+  const uint64_t answeredAtMs = clock_.uptimeMs();
   if (!response.sent) {
     log_.warning("Couldn't fetch the frame: " + response.error + "; sleeping for " +
                  std::to_string(kDefaultRetryS) + " seconds");
@@ -101,7 +109,9 @@ void FrameClient::tick() {
     default:
       break;
   }
-  sleeper_.sleepSeconds(retryAfterSeconds(response.retryAfter));
+  const uint64_t waitMs = static_cast<uint64_t>(retryAfterSeconds(response.retryAfter)) * 1000;
+  const uint64_t elapsedMs = clock_.uptimeMs() - answeredAtMs;
+  sleeper_.sleepMs(std::max(kMinPollWaitMs, waitMs > elapsedMs ? waitMs - elapsedMs : 0));
 }
 
 }  // namespace countdown

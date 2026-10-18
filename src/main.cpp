@@ -70,7 +70,7 @@ void setup() {
   static countdown::DisplayRegistrar registrar(BROKER_URL, store, http, random, sleeper, log,
                                                panel.width(), panel.height());
   static countdown::EpdDisplay display(panel, log);
-  static countdown::FrameClient frameClient(registrar, http, display, sleeper, log, metrics, kLogService, kDeviceName);
+  static countdown::FrameClient frameClient(registrar, http, display, sleeper, clock, log, metrics, kLogService, kDeviceName);
   client = &frameClient;
 }
 

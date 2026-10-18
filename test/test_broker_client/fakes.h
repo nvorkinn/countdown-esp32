@@ -92,8 +92,13 @@ class CountingRandom : public Random {
 
 class RecordingSleeper : public Sleeper {
  public:
-  void sleepSeconds(int seconds) override { sleeps.push_back(seconds); }
+  void sleepMs(uint64_t milliseconds) override {
+    sleepsMs.push_back(milliseconds);
+    sleeps.push_back(static_cast<int>(milliseconds / 1000));
+  }
 
+  std::vector<uint64_t> sleepsMs;
+  // The same sleeps in whole seconds (rounded down), for the tests that don't care about milliseconds.
   std::vector<int> sleeps;
 };
 
@@ -113,24 +118,30 @@ class RecordingLog : public Log {
   std::vector<std::pair<LogLevel, std::string>> lines;
 };
 
-// Records the frames it's asked to draw; `succeeds` says whether drawing works.
-class FakeDisplay : public Display {
- public:
-  bool show(const std::vector<uint8_t>& frame) override {
-    shown.push_back(frame);
-    return succeeds;
-  }
-
-  bool succeeds = true;
-  std::vector<std::vector<uint8_t>> shown;
-};
-
 // Stands still unless a test moves it.
 class FakeClock : public Clock {
  public:
   uint64_t uptimeMs() override { return now; }
 
   uint64_t now = 0;
+};
+
+// Records the frames it's asked to draw; `succeeds` says whether drawing works. With a `clock`,
+// each draw moves it on by `drawMs`, as a refresh of the panel takes seconds.
+class FakeDisplay : public Display {
+ public:
+  bool show(const std::vector<uint8_t>& frame) override {
+    shown.push_back(frame);
+    if (clock) {
+      clock->now += drawMs;
+    }
+    return succeeds;
+  }
+
+  bool succeeds = true;
+  FakeClock* clock = nullptr;
+  uint64_t drawMs = 0;
+  std::vector<std::vector<uint8_t>> shown;
 };
 
 class FakeMetrics : public Metrics {

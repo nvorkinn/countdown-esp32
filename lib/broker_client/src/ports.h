@@ -50,7 +50,9 @@ class Random {
 class Sleeper {
  public:
   virtual ~Sleeper() = default;
-  virtual void sleepSeconds(int seconds) = 0;
+  virtual void sleepMs(uint64_t milliseconds) = 0;
+
+  void sleepSeconds(int seconds) { sleepMs(static_cast<uint64_t>(seconds) * 1000); }
 };
 
 class Clock {

@@ -13,11 +13,12 @@ namespace countdown {
 class FrameClient {
  public:
   // `log` is where the client logs too, and what each poll sends.
-  FrameClient(DisplayRegistrar& registrar, Http& http, Display& display, Sleeper& sleeper, LogBuffer& log,
-              Metrics& metrics, std::string service, std::string host);
+  FrameClient(DisplayRegistrar& registrar, Http& http, Display& display, Sleeper& sleeper, Clock& clock,
+              LogBuffer& log, Metrics& metrics, std::string service, std::string host);
 
   // One poll of /api/frame, registering first if it isn't registered (yet, or any more), then
-  // waiting as long as the broker asks. Each poll carries the board's metrics and the buffered
+  // waiting as long as the broker asks, counted from when its answer arrived (so drawing a frame
+  // doesn't make the next poll late). Each poll carries the board's metrics and the buffered
   // logs, which are cleared once the broker has answered. Arduino's loop() calls this over and over.
   void tick();
 
@@ -26,6 +27,7 @@ class FrameClient {
   Http& http_;
   Display& display_;
   Sleeper& sleeper_;
+  Clock& clock_;
   LogBuffer& log_;
   Metrics& metrics_;
   // Sent with every log line, so VictoriaLogs can tell where it came from (stream fields service,host).

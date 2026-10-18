@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <string>
 #include <vector>
 
 #include "response_body.h"
@@ -55,6 +56,20 @@ void test_response_body_handles_empty_and_exact_limit_responses() {
   TEST_ASSERT_EQUAL(1, bytes.size());
 }
 
+// The broker's 304s come through Caddy with no Content-Length (and the connection closed), so reading
+// a body there failed the poll.
+void test_responses_without_a_body() {
+  for (const int status : {100, 101, 103, 204, 304}) {
+    TEST_ASSERT_FALSE_MESSAGE(responseHasBody(status), std::to_string(status).c_str());
+  }
+}
+
+void test_responses_with_a_body() {
+  for (const int status : {200, 201, 202, 400, 401, 404, 409, 429, 500, 503}) {
+    TEST_ASSERT_TRUE_MESSAGE(responseHasBody(status), std::to_string(status).c_str());
+  }
+}
+
 }  // namespace
 
 void runResponseBodyTests() {
@@ -62,4 +77,6 @@ void runResponseBodyTests() {
   RUN_TEST(test_response_body_bounds_chunked_growth_and_stops_after_failure);
   RUN_TEST(test_response_body_refuses_an_oversized_content_length);
   RUN_TEST(test_response_body_handles_empty_and_exact_limit_responses);
+  RUN_TEST(test_responses_without_a_body);
+  RUN_TEST(test_responses_with_a_body);
 }

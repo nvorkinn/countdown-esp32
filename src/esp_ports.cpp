@@ -6,6 +6,7 @@
 #include <esp_system.h>
 #include <esp_timer.h>
 
+#include <algorithm>
 #include <vector>
 
 #include "response_body.h"
@@ -87,7 +88,7 @@ countdown::HttpResponse EspHttp::request(const std::string& method, const std::s
     response.etag = http.header("ETag").c_str();
   }
   const int size = http.getSize();
-  if (size != 0) {
+  if (countdown::responseHasBody(status) && size != 0) {
     countdown::ResponseBody buffer(response.body, maxBodyBytes_);
     if (size > 0 && !buffer.reserve(static_cast<size_t>(size))) {
       response.error = buffer.error();
@@ -110,7 +111,14 @@ countdown::HttpResponse EspHttp::request(const std::string& method, const std::s
 
 void EspRandom::fill(uint8_t* buffer, size_t length) { esp_fill_random(buffer, length); }
 
-void DelaySleeper::sleepSeconds(int seconds) { delay(static_cast<unsigned long>(seconds) * 1000UL); }
+void DelaySleeper::sleepMs(uint64_t milliseconds) {
+  // delay() takes 32 bits of milliseconds, about 49 days.
+  while (milliseconds > 0) {
+    const uint32_t step = static_cast<uint32_t>(std::min<uint64_t>(milliseconds, UINT32_MAX));
+    delay(step);
+    milliseconds -= step;
+  }
+}
 
 uint64_t EspClock::uptimeMs() { return static_cast<uint64_t>(esp_timer_get_time()) / 1000; }
 

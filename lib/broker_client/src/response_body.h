@@ -8,6 +8,11 @@
 
 namespace countdown {
 
+// Whether a response to a POST has a body to read. 1xx, 204 and 304 responses never do (RFC 9110
+// sections 6.4.1 and 15.4.5), even with no Content-Length, and the server may close the connection
+// straight after one, so reading would only fail (or wait for the server to time out).
+inline bool responseHasBody(int status) { return status >= 200 && status != 204 && status != 304; }
+
 // Bounds chunked as well as fixed-length responses, and leaves allocation failures reportable.
 class ResponseBody {
  public:
