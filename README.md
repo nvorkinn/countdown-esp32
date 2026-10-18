@@ -115,7 +115,10 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    `device_secret`, and registers with the broker, sending the selected panel's size (`width` and `height`,
    800x480 or 1872x1404). It registers again on every boot, with the same secret.
 3. It polls `/api/frame` with a `POST`, waiting as long as the broker's `Retry-After` says (60 seconds
-   if it is missing or invalid). Every HTTP response is logged in the same format to serial and
+   if it is missing or invalid). The broker works the header out so the next poll lands just after its
+   next render (about :03 and :33 past the minute), so the wait counts from when the answer arrived: the time
+   spent drawing a new frame comes off it, and it is never less than 1 second. A failed request waits 60 seconds.
+   Every HTTP response is logged in the same format to serial and
    buffered for the next poll: `Frame response: HTTP 200 (48000 bytes), Retry-After: "30" seconds`.
    The header is quoted as received, or shown as `<missing>` when absent. A 401 triggers immediate
    re-registration without sleeping, regardless of the header. Connection failures log the error and retry delay.
@@ -125,8 +128,9 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 4. Each new frame (a `200`) is drawn on the panel: wake it, send the frame, refresh (timing depends on the panel),
    and put it back into deep sleep, as `countdown-client` does on the Pi.
    The board remembers the frame's `ETag` and sends it as `If-None-Match` on later polls, so the broker
-   answers `304` with no body until the frame changes. It's kept in memory only: after a restart the
-   first poll fetches and draws the frame again.
+   answers `304` until the frame changes. The ETag is kept in memory only: after a restart the
+   first poll fetches and draws the frame again. A `304` (like any 1xx or `204`) has no body, so none
+   is read: only its headers (`Retry-After`, `ETag`) are used.
 
 ## What each poll sends
 

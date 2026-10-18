@@ -19,7 +19,7 @@ struct Client {
   DisplayRegistrar registrar;
   FrameClient client;
 
-  Client() : registrar(withSecret(board)), client(registrar, board.http, board.display, board.sleeper, board.logs, board.metrics, "countdown-esp32", "my-device") {}
+  Client() : registrar(withSecret(board)), client(registrar, board.http, board.display, board.sleeper, board.clock, board.logs, board.metrics, "countdown-esp32", "my-device") {}
 
   static DisplayRegistrar withSecret(Board& board) {
     board.store.values[kDeviceSecretKey] = "shh";
@@ -158,10 +158,70 @@ void test_a_poll_logs_the_raw_header_and_uses_the_effective_wait() {
 
     c.client.tick();
 
-    const int expected = header == "invalid" || header.empty() ? kDefaultRetryS : std::stoi(header);
+    // A Retry-After of 0 still waits the shortest wait, a second, rather than polling straight away.
+    const int expected = header == "invalid" || header.empty() ? kDefaultRetryS
+                         : header == "0"                     ? 1
+                                                             : std::stoi(header);
     TEST_ASSERT_EQUAL(expected, c.board.sleeper.sleeps[0]);
     TEST_ASSERT_EQUAL_STD_STRING("Frame response: HTTP 304 (0 bytes), Retry-After: \"" + header + "\" seconds",
                                  c.board.log.lines.back().second);
+  }
+}
+
+// A Board whose panel takes `drawMs` to draw a frame.
+void drawsIn(Board& board, uint64_t drawMs) {
+  board.display.clock = &board.clock;
+  board.display.drawMs = drawMs;
+}
+
+void test_the_wait_after_a_frame_is_shortened_by_the_time_drawing_it_took() {
+  Client c;
+  drawsIn(c.board, 7250);
+  c.board.clock.now = 100000;
+  c.board.http.reply(201);
+  c.board.http.reply(200, "30", "frame");
+
+  c.client.tick();
+
+  TEST_ASSERT_EQUAL(1, c.board.display.shown.size());
+  TEST_ASSERT_EQUAL(1, c.board.sleeper.sleepsMs.size());
+  TEST_ASSERT_EQUAL_UINT64(30000 - 7250, c.board.sleeper.sleepsMs[0]);
+}
+
+void test_a_frame_that_couldnt_be_drawn_still_counts_the_time_trying_took() {
+  Client c;
+  drawsIn(c.board, 10000);
+  c.board.display.succeeds = false;
+  c.board.http.reply(201);
+  c.board.http.reply(200, "30", "frame");
+
+  c.client.tick();
+
+  TEST_ASSERT_EQUAL_UINT64(20000, c.board.sleeper.sleepsMs[0]);
+}
+
+void test_a_304_draws_nothing_and_waits_the_whole_retry_after() {
+  Client c;
+  drawsIn(c.board, 7250);
+  c.board.http.reply(201);
+  c.board.http.reply(304, "30");
+
+  c.client.tick();
+
+  TEST_ASSERT_TRUE(c.board.display.shown.empty());
+  TEST_ASSERT_EQUAL_UINT64(30000, c.board.sleeper.sleepsMs[0]);
+}
+
+void test_a_draw_longer_than_the_retry_after_waits_the_shortest_wait() {
+  for (const uint64_t drawMs : {5000, 9000}) {
+    Client c;
+    drawsIn(c.board, drawMs);
+    c.board.http.reply(201);
+    c.board.http.reply(200, "5", "frame");
+
+    c.client.tick();
+
+    TEST_ASSERT_EQUAL_UINT64(1000, c.board.sleeper.sleepsMs[0]);
   }
 }
 
@@ -226,7 +286,7 @@ void test_polls_carry_the_new_secret_after_a_409() {
   Board board;
   board.store.values[kDeviceSecretKey] = "a renderer's";
   DisplayRegistrar registrar = board.registrar();
-  FrameClient client(registrar, board.http, board.display, board.sleeper, board.logs, board.metrics, "countdown-esp32", "my-device");
+  FrameClient client(registrar, board.http, board.display, board.sleeper, board.clock, board.logs, board.metrics, "countdown-esp32", "my-device");
   board.http.reply(409);
   board.http.reply(201);
   board.http.reply(202);
@@ -402,6 +462,10 @@ void runFrameClientTests() {
   RUN_TEST(test_404_logs_the_wait);
   RUN_TEST(test_a_poll_without_retry_after_waits_the_default);
   RUN_TEST(test_a_poll_logs_the_raw_header_and_uses_the_effective_wait);
+  RUN_TEST(test_the_wait_after_a_frame_is_shortened_by_the_time_drawing_it_took);
+  RUN_TEST(test_a_frame_that_couldnt_be_drawn_still_counts_the_time_trying_took);
+  RUN_TEST(test_a_304_draws_nothing_and_waits_the_whole_retry_after);
+  RUN_TEST(test_a_draw_longer_than_the_retry_after_waits_the_shortest_wait);
   RUN_TEST(test_401_registers_again_with_the_same_secret_on_the_next_tick);
   RUN_TEST(test_an_unexpected_status_is_logged_and_waits_as_asked);
   RUN_TEST(test_an_unreachable_broker_is_polled_again_after_the_default);

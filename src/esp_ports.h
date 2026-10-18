@@ -42,7 +42,7 @@ class EspRandom : public countdown::Random {
 
 class DelaySleeper : public countdown::Sleeper {
  public:
-  void sleepSeconds(int seconds) override;
+  void sleepMs(uint64_t milliseconds) override;
 };
 
 // esp_timer's 64-bit microseconds, so it doesn't wrap after 49 days as millis() does.
