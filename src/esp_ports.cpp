@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 
@@ -26,6 +27,14 @@ void NvsStore::put(const std::string& key, const std::string& value) {
 }
 
 namespace {
+
+// Whether a buffer this big can be allocated: the largest free block, in PSRAM (where big buffers
+// go, see main.cpp) or in internal RAM. Built without exceptions, a failed allocation aborts, so
+// ResponseBody asks first and reports it instead.
+bool fitsInMemory(size_t bytes) {
+  return heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) >= bytes ||
+         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >= bytes;
+}
 
 // Stream HTTPClient's fixed-length or chunked body into the bounded receiver.
 class VectorStream : public Stream {
@@ -89,7 +98,7 @@ countdown::HttpResponse EspHttp::request(const std::string& method, const std::s
   }
   const int size = http.getSize();
   if (countdown::responseHasBody(status) && size != 0) {
-    countdown::ResponseBody buffer(response.body, maxBodyBytes_);
+    countdown::ResponseBody buffer(response.body, maxBodyBytes_, fitsInMemory);
     if (size > 0 && !buffer.reserve(static_cast<size_t>(size))) {
       response.error = buffer.error();
       http.end();

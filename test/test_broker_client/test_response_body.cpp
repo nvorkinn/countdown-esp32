@@ -44,6 +44,28 @@ void test_response_body_refuses_an_oversized_content_length() {
   TEST_ASSERT_NOT_NULL(body.error());
 }
 
+// Memory for at most 100 bytes.
+bool fitsIn100Bytes(size_t bytes) { return bytes <= 100; }
+
+void test_response_body_reports_a_buffer_that_would_not_fit_in_memory() {
+  std::vector<uint8_t> bytes;
+  ResponseBody body(bytes, 48000, fitsIn100Bytes);
+  TEST_ASSERT_TRUE(body.reserve(100));
+  TEST_ASSERT_FALSE(body.reserve(101));
+  TEST_ASSERT_EQUAL_STRING("Not enough memory for the HTTP response", body.error());
+}
+
+void test_response_body_reports_growth_that_would_not_fit_in_memory() {
+  std::vector<uint8_t> bytes;
+  ResponseBody body(bytes, 48000, fitsIn100Bytes);
+  const std::vector<uint8_t> chunk(60, 0x5A);
+  TEST_ASSERT_EQUAL(60, body.append(chunk.data(), chunk.size()));
+  TEST_ASSERT_EQUAL(0, body.append(chunk.data(), chunk.size()));  // 120 bytes: more than fit
+  TEST_ASSERT_EQUAL(60, bytes.size());
+  TEST_ASSERT_EQUAL_STRING("Not enough memory for the HTTP response", body.error());
+  TEST_ASSERT_EQUAL(0, body.append(chunk.data(), 1));  // and it stays failed
+}
+
 void test_response_body_handles_empty_and_exact_limit_responses() {
   std::vector<uint8_t> bytes;
   ResponseBody body(bytes, 1);
@@ -76,6 +98,8 @@ void runResponseBodyTests() {
   RUN_TEST(test_response_body_accepts_an_entire_7in8_frame);
   RUN_TEST(test_response_body_bounds_chunked_growth_and_stops_after_failure);
   RUN_TEST(test_response_body_refuses_an_oversized_content_length);
+  RUN_TEST(test_response_body_reports_a_buffer_that_would_not_fit_in_memory);
+  RUN_TEST(test_response_body_reports_growth_that_would_not_fit_in_memory);
   RUN_TEST(test_response_body_handles_empty_and_exact_limit_responses);
   RUN_TEST(test_responses_without_a_body);
   RUN_TEST(test_responses_with_a_body);
