@@ -47,6 +47,54 @@ bool Epd7in5V2::display(const uint8_t* frame) {
   return waitBusy(kBusyTimeoutMs);
 }
 
+bool Epd7in5V2::initPartial() {
+  bus_.powerOn();
+  reset();
+
+  command(0x00, {0x1F});  // PANEL SETTING: KW mode
+  command(0x04);          // POWER ON
+  bus_.delayMs(100);
+  if (!waitBusy(kPowerOnTimeoutMs)) {
+    return false;
+  }
+  command(0xE0, {0x02});  // Cascade setting
+  command(0xE5, {0x6E});  // Force temperature: the fast waveform
+  return true;
+}
+
+bool Epd7in5V2::displayPartial(const uint8_t* frame, const Window& window) {
+  const int xEnd = window.x + window.width;
+  const int yEnd = window.y + window.height;
+  if (window.x < 0 || window.y < 0 || window.width <= 0 || window.height <= 0 || window.x % 8 != 0 ||
+      window.width % 8 != 0 || xEnd > kWidth || yEnd > kHeight) {
+    return false;
+  }
+  command(0x50, {0xA9, 0x07});  // VCOM AND DATA INTERVAL, for a partial update
+  command(0x91);                // PARTIAL IN
+  command(0x90, {                // PARTIAL WINDOW: x start, x end, y start, y end, then scan inside the window
+                    static_cast<uint8_t>(window.x >> 8), static_cast<uint8_t>(window.x & 0xFF),
+                    static_cast<uint8_t>((xEnd - 1) >> 8), static_cast<uint8_t>((xEnd - 1) & 0xFF),
+                    static_cast<uint8_t>(window.y >> 8), static_cast<uint8_t>(window.y & 0xFF),
+                    static_cast<uint8_t>((yEnd - 1) >> 8), static_cast<uint8_t>((yEnd - 1) & 0xFF), 0x01});
+
+  // The window's rows only, inverted (as display_Partial does), a row at a time.
+  bus_.command(0x13);
+  const size_t rowBytes = kWidth / 8;
+  const size_t windowBytes = static_cast<size_t>(window.width) / 8;
+  uint8_t row[kWidth / 8];
+  for (int y = window.y; y < yEnd; ++y) {
+    const uint8_t* source = frame + y * rowBytes + window.x / 8;
+    for (size_t i = 0; i < windowBytes; ++i) {
+      row[i] = static_cast<uint8_t>(~source[i]);
+    }
+    bus_.data(row, windowBytes);
+  }
+
+  command(0x12);  // DISPLAY REFRESH
+  bus_.delayMs(100);
+  return waitBusy(kBusyTimeoutMs);
+}
+
 bool Epd7in5V2::sleep() {
   command(0x50, {0xF7});
   command(0x02);  // POWER OFF

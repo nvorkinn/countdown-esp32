@@ -38,6 +38,11 @@ class Epd7in5V2 : public EpdPanel {
   bool display(const uint8_t* frame) override;
   bool sleep() override;
 
+  // Waveshare's init_part() and display_Partial(): the panel's own fast waveform over a window.
+  bool supportsPartial() const override { return true; }
+  bool initPartial() override;
+  bool displayPartial(const uint8_t* frame, const Window& window) override;
+
  private:
   void reset();
   void command(uint8_t command, std::initializer_list<uint8_t> data = {});
