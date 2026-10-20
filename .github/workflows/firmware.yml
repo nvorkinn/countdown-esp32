@@ -92,7 +92,7 @@ jobs:
 
       - name: Compare
         if: always()
-        run: python3 scripts/size_report.py --diff /tmp/map800.txt /tmp/map713.txt | cut -c1-160
+        run: python3 scripts/size_report.py --diff map800.txt map713.txt | cut -c1-160
 
       - name: Collect binaries
         run: |
