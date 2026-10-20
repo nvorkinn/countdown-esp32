@@ -11,15 +11,20 @@ def merge_firmware(source, target, env):
         for offset, path in env["FLASH_EXTRA_IMAGES"]
     ]
     images.append((env.subst("$ESP32_APP_OFFSET"), str(source[-1])))
-    args = [
-        env.subst("$PYTHONEXE"),
-        env.subst("$OBJCOPY"),
+    # esptool is a Python script (esptool.py) up to platform 7.x, and a native program from 8.0, whose commands and
+    # options are spelt with hyphens (the underscore spellings are only deprecated aliases there).
+    esptool = env.subst("$OBJCOPY")
+    native = not esptool.endswith(".py")
+    dash = "-" if native else "_"
+    args = [] if native else [env.subst("$PYTHONEXE")]
+    args += [
+        esptool,
         "--chip", env.BoardConfig().get("build.mcu"),
-        "merge_bin",
+        f"merge{dash}bin",
         "--output", str(target[0]),
-        "--flash_mode", env.subst("${__get_board_flash_mode(__env__)}"),
-        "--flash_freq", env.subst("${__get_board_f_image(__env__)}"),
-        "--flash_size", env.BoardConfig().get("upload.flash_size"),
+        f"--flash{dash}mode", env.subst("${__get_board_flash_mode(__env__)}"),
+        f"--flash{dash}freq", env.subst("${__get_board_f_image(__env__)}"),
+        f"--flash{dash}size", env.BoardConfig().get("upload.flash_size"),
     ]
     for offset, path in sorted(images, key=lambda image: int(image[0], 0)):
         args.extend([offset, path])

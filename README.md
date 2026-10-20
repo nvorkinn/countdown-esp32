@@ -82,6 +82,11 @@ Replace the port and filename with yours; Windows ports look like `COM3`. With e
 `write_flash` instead of `write-flash`. If automatic bootloader entry fails, hold BOOT while starting
 the flash, then release it once connected. Reset the board afterwards.
 
+**A board built before the partition table changed needs the merged image once.** The firmware now uses a 3 MB app slot
+(`board_build.partitions = huge_app.csv`), and the partition table is in flash, so an application-only `firmware.bin`
+flashed over an older table doesn't fit its smaller slot and won't boot. Flash the merged image at `0x0` (it also
+writes the new table), as above.
+
 **Treat merged images as fresh installs:** the padding covers NVS, so flashing one erases saved Wi-Fi
 and the device secret. The board will open its first-boot portal and register a new device. For updates
 that preserve NVS, use PlatformIO upload or flash the matching application-only `firmware.bin` at its
