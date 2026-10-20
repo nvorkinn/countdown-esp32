@@ -6,6 +6,7 @@
 #include <ESPmDNS.h>
 #include <WiFiManager.h>
 #include <mbedtls/sha256.h>
+#include <mbedtls/version.h>
 
 #include <string>
 #include <vector>
@@ -75,7 +76,12 @@ String portalName() {
 
 std::string sha256Hex(const std::string& input) {
   unsigned char digest[32];
-  mbedtls_sha256_ret(reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest, 0);
+  const auto* data = reinterpret_cast<const unsigned char*>(input.data());
+#if MBEDTLS_VERSION_MAJOR >= 3
+  mbedtls_sha256(data, input.size(), digest, 0);  // Arduino-ESP32 3.x: the _ret variants are gone.
+#else
+  mbedtls_sha256_ret(data, input.size(), digest, 0);
+#endif
   constexpr char hex[] = "0123456789abcdef";
   std::string result;
   result.reserve(sizeof(digest) * 2);
@@ -101,12 +107,34 @@ bool isMdnsHost(String host) {
   return host.equalsIgnoreCase(String(kDeviceName) + ".local");
 }
 
-class RedirectToPortal : public RequestHandler {
+// Adapts RequestHandler's signatures, which differ between the cores, to matches() and respond().
+// Arduino-ESP32 2.x: canHandle(HTTPMethod, String) and handle(WebServer&, HTTPMethod, String).
+// 3.x: WebServer asks canHandle(WebServer&, HTTPMethod, const String&) (the old two-argument
+// overload is no longer called, so overriding only it would silently never match) and then calls
+// handle(WebServer&, HTTPMethod, const String&).
+class PortalHandler : public RequestHandler {
+ public:
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  using RequestHandler::canHandle;
+  bool canHandle(WebServer&, HTTPMethod, const String& uri) override { return matches(uri); }
+  bool handle(WebServer& server, HTTPMethod, const String&) override { return respond(server); }
+#else
+  bool canHandle(HTTPMethod, String uri) override { return matches(uri); }
+  bool handle(WebServer& server, HTTPMethod, String) override { return respond(server); }
+#endif
+
+ protected:
+  virtual bool matches(const String& uri) = 0;
+  virtual bool respond(WebServer& server) = 0;
+};
+
+class RedirectToPortal : public PortalHandler {
  public:
   RedirectToPortal(WiFiManager& manager, countdown::Log& log) : manager_(manager), log_(log) {}
 
-  bool canHandle(HTTPMethod, String) override { return !isMdnsHost(manager_.server->hostHeader()); }
-  bool handle(WebServer& server, HTTPMethod, String) override {
+ protected:
+  bool matches(const String&) override { return !isMdnsHost(manager_.server->hostHeader()); }
+  bool respond(WebServer& server) override {
     redirectToPortal(server, log_);
     return true;
   }
@@ -116,12 +144,13 @@ class RedirectToPortal : public RequestHandler {
   countdown::Log& log_;
 };
 
-class RedirectUnknownRequest : public RequestHandler {
+class RedirectUnknownRequest : public PortalHandler {
  public:
   explicit RedirectUnknownRequest(countdown::Log& log) : log_(log) {}
 
-  bool canHandle(HTTPMethod, String) override { return true; }
-  bool handle(WebServer& server, HTTPMethod, String) override {
+ protected:
+  bool matches(const String&) override { return true; }
+  bool respond(WebServer& server) override {
     redirectToPortal(server, log_);
     return true;
   }
@@ -133,11 +162,12 @@ class RedirectUnknownRequest : public RequestHandler {
 // The boards are given away, so the portal only offers Wi-Fi set-up. Hiding the menu entries isn't
 // enough, as the pages stay reachable by URL: Info (/info), firmware update (/u, /update), erase
 // (/erase), restart (/r), and exit/close (/exit, /close).
-class HideMaintenancePages : public RequestHandler {
+class HideMaintenancePages : public PortalHandler {
  public:
   explicit HideMaintenancePages(countdown::Log& log) : log_(log) {}
 
-  bool canHandle(HTTPMethod, String uri) override {
+ protected:
+  bool matches(const String& uri) override {
     for (const char* page : {"/info", "/u", "/update", "/erase", "/r", "/exit", "/close"}) {
       if (uri == page) {
         return true;
@@ -145,7 +175,7 @@ class HideMaintenancePages : public RequestHandler {
     }
     return false;
   }
-  bool handle(WebServer& server, HTTPMethod, String) override {
+  bool respond(WebServer& server) override {
     redirectToPortal(server, log_);
     return true;
   }
@@ -156,13 +186,15 @@ class HideMaintenancePages : public RequestHandler {
 
 // Answers iOS's "is there internet?" checks with the page it expects, so it doesn't open its
 // pop-up sheet (which closes when the access point goes away) and the user does set-up in Safari.
-class AppleProbeSuccess : public RequestHandler {
+class AppleProbeSuccess : public PortalHandler {
  public:
   explicit AppleProbeSuccess(WiFiManager& manager) : manager_(manager) {}
-  bool canHandle(HTTPMethod, String) override {
+
+ protected:
+  bool matches(const String&) override {
     return countdown::isAppleProbeHost(manager_.server->hostHeader().c_str());
   }
-  bool handle(WebServer& server, HTTPMethod, String) override {
+  bool respond(WebServer& server) override {
     server.send(200, "text/html", "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>");
     return true;
   }
