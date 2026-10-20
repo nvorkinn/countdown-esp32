@@ -62,7 +62,7 @@ bool Epd7in5V2::initPartial() {
   return true;
 }
 
-bool Epd7in5V2::displayPartial(const uint8_t* frame, const Window& window) {
+bool Epd7in5V2::displayPartial(const uint8_t* frame, const uint8_t* previous, const Window& window) {
   const int xEnd = window.x + window.width;
   const int yEnd = window.y + window.height;
   if (window.x < 0 || window.y < 0 || window.width <= 0 || window.height <= 0 || window.x % 8 != 0 ||
@@ -77,22 +77,30 @@ bool Epd7in5V2::displayPartial(const uint8_t* frame, const Window& window) {
                     static_cast<uint8_t>(window.y >> 8), static_cast<uint8_t>(window.y & 0xFF),
                     static_cast<uint8_t>((yEnd - 1) >> 8), static_cast<uint8_t>((yEnd - 1) & 0xFF), 0x01});
 
-  // The window's rows only, inverted (as display_Partial does), a row at a time.
-  bus_.command(0x13);
+  // The picture that is on the panel (old data, 0x10), then the new one (0x13), both for the window only and inverted
+  // as display_Partial does. The panel compares them to decide which pixels to drive. It was powered down since it was
+  // drawn, unlike in Waveshare's demo, which keeps it on between partial updates and sends only the new one, so it
+  // has probably lost the old one: without it, a partial update drew grey, speckled blacks.
+  sendWindow(0x10, previous, window);
+  sendWindow(0x13, frame, window);
+
+  command(0x12);  // DISPLAY REFRESH
+  bus_.delayMs(100);
+  return waitBusy(kBusyTimeoutMs);
+}
+
+void Epd7in5V2::sendWindow(uint8_t command, const uint8_t* frame, const Window& window) {
+  bus_.command(command);
   const size_t rowBytes = kWidth / 8;
   const size_t windowBytes = static_cast<size_t>(window.width) / 8;
   uint8_t row[kWidth / 8];
-  for (int y = window.y; y < yEnd; ++y) {
+  for (int y = window.y; y < window.y + window.height; ++y) {
     const uint8_t* source = frame + y * rowBytes + window.x / 8;
     for (size_t i = 0; i < windowBytes; ++i) {
       row[i] = static_cast<uint8_t>(~source[i]);
     }
     bus_.data(row, windowBytes);
   }
-
-  command(0x12);  // DISPLAY REFRESH
-  bus_.delayMs(100);
-  return waitBusy(kBusyTimeoutMs);
 }
 
 bool Epd7in5V2::sleep() {

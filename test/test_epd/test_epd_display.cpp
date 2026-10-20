@@ -106,7 +106,7 @@ void test_a_small_change_is_drawn_as_a_partial_refresh_of_its_window() {
   // A progress bar: 8 rows of 20 byte columns starting at column 10.
   TEST_ASSERT_TRUE(s.display.show(changed(400, 8, 10, 20)));
 
-  TEST_ASSERT_EQUAL(0, s.bus.count(0x10));
+  TEST_ASSERT_EQUAL(0, s.bus.count(0x01));  // not the full refresh's init
   TEST_ASSERT_EQUAL(1, s.bus.count(0x91));
   TEST_ASSERT_EQUAL(1, s.bus.count(0x12));
   TEST_ASSERT_EQUAL(1, s.bus.count(0x07));
@@ -119,6 +119,25 @@ void test_a_small_change_is_drawn_as_a_partial_refresh_of_its_window() {
     }
   }
   TEST_ASSERT_TRUE(found);
+}
+
+void test_a_partial_refresh_gives_the_panel_the_picture_it_replaces() {
+  Screen s;
+  s.display.show(kFrame);  // 0xAA everywhere
+  s.bus.events.clear();
+
+  s.display.show(changed(400, 8, 10, 20));  // 0x55 in the window
+
+  std::vector<uint8_t> oldData, newData;
+  for (const CommandWithData& command : s.bus.commands()) {
+    if (command.first == 0x10) oldData = command.second;
+    if (command.first == 0x13) newData = command.second;
+  }
+  // Both inverted, 8 rows of 20 bytes: the old picture's 0xAA is 0x55 on the wire, the new 0x55 is 0xAA.
+  TEST_ASSERT_EQUAL(160, oldData.size());
+  TEST_ASSERT_EQUAL(160, newData.size());
+  TEST_ASSERT_EQUAL_HEX8(0x55, oldData.front());
+  TEST_ASSERT_EQUAL_HEX8(0xAA, newData.front());
 }
 
 void test_the_same_frame_again_touches_nothing() {
@@ -154,10 +173,10 @@ void test_a_full_refresh_follows_every_so_many_partial_ones() {
   display.show(changed(0, 1, 0, 1));
   display.show(changed(1, 1, 0, 1));
   TEST_ASSERT_EQUAL(2, bus.count(0x91));
-  TEST_ASSERT_EQUAL(0, bus.count(0x10));
+  TEST_ASSERT_EQUAL(0, bus.count(0x01));  // no full refresh yet (its init sends 0x01)
   display.show(changed(2, 1, 0, 1));
   TEST_ASSERT_EQUAL(2, bus.count(0x91));
-  TEST_ASSERT_EQUAL(1, bus.count(0x10));
+  TEST_ASSERT_EQUAL(1, bus.count(0x01));
   // The count starts over after the full one.
   display.show(changed(3, 1, 0, 1));
   TEST_ASSERT_EQUAL(3, bus.count(0x91));
@@ -184,6 +203,7 @@ void test_a_failed_partial_refresh_makes_the_next_frame_a_full_one() {
 void runEpdDisplayTests() {
   RUN_TEST(test_the_first_frame_is_drawn_in_full);
   RUN_TEST(test_a_small_change_is_drawn_as_a_partial_refresh_of_its_window);
+  RUN_TEST(test_a_partial_refresh_gives_the_panel_the_picture_it_replaces);
   RUN_TEST(test_the_same_frame_again_touches_nothing);
   RUN_TEST(test_a_big_change_is_drawn_in_full);
   RUN_TEST(test_a_full_refresh_follows_every_so_many_partial_ones);

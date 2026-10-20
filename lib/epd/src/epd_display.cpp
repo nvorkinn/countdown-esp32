@@ -1,6 +1,7 @@
 #include "epd_display.h"
 
 #include <string>
+#include <utility>
 
 #include "frame_diff.h"
 
@@ -53,12 +54,14 @@ bool EpdDisplay::showFull(const std::vector<uint8_t>& frame) {
 }
 
 bool EpdDisplay::showPartial(const std::vector<uint8_t>& frame, const Window& window) {
+  // The frame on the panel is only known again once this draw has worked.
+  const std::vector<uint8_t> previous = std::move(shown_);
   shown_.clear();
   if (!panel_.initPartial()) {
     log_.error("The e-paper panel didn't answer: is it connected and powered?");
     return false;
   }
-  if (!panel_.displayPartial(frame.data(), window)) {
+  if (!panel_.displayPartial(frame.data(), previous.data(), window)) {
     log_.error("The e-paper panel was still busy after a partial refresh");
     return false;
   }
