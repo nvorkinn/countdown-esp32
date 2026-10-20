@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <new>
 #include <vector>
 
 namespace countdown {
@@ -12,27 +13,22 @@ namespace countdown {
 // straight after one, so reading would only fail (or wait for the server to time out).
 inline bool responseHasBody(int status) { return status >= 200 && status != 204 && status != 304; }
 
-// Whether a buffer of this many bytes would fit in memory. The firmware is built without C++
-// exceptions, where a failed allocation aborts instead of throwing, so ResponseBody asks before it
-// allocates. A null check means everything fits (the native tests).
-using AllocationCheck = bool (*)(size_t bytes);
-
 // Bounds chunked as well as fixed-length responses, and leaves allocation failures reportable.
 class ResponseBody {
  public:
-  ResponseBody(std::vector<uint8_t>& bytes, size_t limit, AllocationCheck canAllocate = nullptr)
-      : bytes_(bytes), limit_(limit), canAllocate_(canAllocate) {}
+  ResponseBody(std::vector<uint8_t>& bytes, size_t limit) : bytes_(bytes), limit_(limit) {}
 
   bool reserve(size_t size) {
     if (size > limit_) {
       error_ = "HTTP response exceeds the configured body limit";
       return false;
     }
-    if (canAllocate_ && !canAllocate_(size)) {
+    try {
+      bytes_.reserve(size);
+    } catch (const std::bad_alloc&) {
       error_ = "Not enough memory for the HTTP response";
       return false;
     }
-    bytes_.reserve(size);
     return true;
   }
 
@@ -60,7 +56,6 @@ class ResponseBody {
  private:
   std::vector<uint8_t>& bytes_;
   size_t limit_;
-  AllocationCheck canAllocate_;
   const char* error_ = nullptr;
 };
 

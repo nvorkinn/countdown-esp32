@@ -52,8 +52,6 @@ Use the same `-e` option when uploading, for example `pio run -e esp-wrover-kit-
 Both environments target the ESP32-WROVER board; the 7.8" build requires working PSRAM. Large heap
 allocations explicitly use the PSRAM-enabled allocator. HTTP bodies are bounded to the panel's frame
 size, including chunked responses, and memory/read failures are logged rather than displaying a partial frame.
-The firmware is built without C++ exceptions (they cost flash), so the receiver checks that a buffer fits in
-PSRAM or internal RAM before allocating it, and reports "Not enough memory" instead of rebooting.
 
 Panel selection is compiled in: each environment chooses exactly one `EPD_PANEL_*` flag and its wiring.
 Registration and frame validation get their dimensions from the same panel object. Polling, provisioning,
