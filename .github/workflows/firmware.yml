@@ -65,7 +65,7 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Build firmware
-        run: pio run -e esp-wrover-kit -e esp-wrover-kit-it8951
+        run: pio run -e esp-wrover-kit
 
       - name: Size report
         if: always()
