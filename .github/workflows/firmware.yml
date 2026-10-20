@@ -76,7 +76,7 @@ jobs:
           find . -name 'firmware.map' -not -path './.git/*' | head
           M=$(find . -name 'firmware.map' -not -path './.git/*' | head -1)
           cp $M /tmp/map800.txt
-          python3 scripts/size_report.py /tmp/map800.txt libUpdate.a libHTTPClient.a libWebServer.a libWiFiManager.a libFrameworkArduino.a libmbedtls.a libmbedcrypto.a libesp_https_ota.a libbt.a libhttp_parser.a libmdns.a libesp_https_server.a libesp_http_server.a | cut -c1-160
+          python3 scripts/size_report.py /tmp/map800.txt libUpdate.a libHTTPClient.a libWebServer.a libWiFiManager.a libFrameworkArduino.a libmbedtls.a libmbedcrypto.a libesp_https_ota.a libbt.a libhttp_parser.a libmdns.a libesp_https_server.a libesp_http_server.a | cut -c1-160 | head -60
 
       - name: Build 7.1.3
         if: always()

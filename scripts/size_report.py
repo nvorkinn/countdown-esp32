@@ -23,7 +23,10 @@ full_re = re.compile(r"^ (\.\S+)\s+(0x[0-9a-f]+)\s+(0x[0-9a-f]+)\s+(\S.*)$")
 cont_re = re.compile(r"^\s+(0x[0-9a-f]+)\s+(0x[0-9a-f]+)\s+(\S.*)$")
 sizes = collections.Counter(); objs = collections.Counter()
 pending = None
+out=''
+byout=collections.Counter(); big=[]
 for l in lines[i0:ic]:
+    if l[:1]=='.' : out=l.split()[0]
     m = full_re.match(l)
     if m: name, addr, sz, path = m.groups(); pending=None
     else:
@@ -37,11 +40,17 @@ for l in lines[i0:ic]:
     if "(" in path: arch = path.split("(")[0].split("/")[-1]; ob = path.split("(")[1].rstrip(")")
     else: arch = path.split("/")[-1]; ob = arch
     if arch.endswith(".o") and ("/src/" in path or "/lib/" in path or "esp-wrover" in path): arch = "PROJECT:" + path.split("/")[-2] + "/" + arch
+    byout[out]+=sz; big.append((sz,out,name,path.split('/')[-1]))
+    if re.search(r'rodata_noload|NOLOAD', out): continue
     sizes[arch]+=sz; objs[arch+"|"+ob]+=sz
 import json, os
 json.dump(dict(sizes), open("/tmp/sz_"+os.path.basename(mp)+".json","w"))
 tot = sum(sizes.values())
 print("TOTAL flash-ish bytes in map: %d (%.1f KB)" % (tot, tot/1024))
+print("== by output section (KB) ==")
+for o,s in byout.most_common(12): print("%7.1f %s"%(s/1024,o))
+print("== top 15 input sections ==")
+for sz,o,n,p in sorted(big,reverse=True)[:15]: print("%7.1f %s %s %s"%(sz/1024,o,n[:40],p[:40]))
 print("== by archive/object-dir (KB) ==")
 for a,s in sizes.most_common(45): print("%7.1f %s" % (s/1024, a))
 print("== top 40 objects (KB) ==")
