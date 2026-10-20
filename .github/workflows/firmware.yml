@@ -65,20 +65,34 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Build firmware
-        run: pio run -e esp-wrover-kit
+        run: pio run -e esp-wrover-kit || true
 
-      - name: Size report
+      - name: Size report 8.0.0
         if: always()
         run: |
-          T=$(ls -d ~/.platformio/packages/toolchain-xtensa-esp*/bin)
-          ls $T | grep -E 'nm|size' | head
-          E=.pio/build/esp-wrover-kit/firmware.elf
-          ls -la $E firmware.map || true
-          echo "== size -A =="; $T/xtensa-esp32-elf-size -A $E 2>/dev/null | head -30 || $T/xtensa-esp-elf-size -A $E | head -30
-          echo "== nm top 80 =="; ($T/xtensa-esp32-elf-nm --size-sort --demangle --radix=d $E || $T/xtensa-esp-elf-nm --size-sort --demangle --radix=d $E) | tail -80 | cut -c1-110
-          echo "== map =="
-          python3 scripts/size_report.py firmware.map libUpdate.a libHTTPClient.a libWebServer.a libWiFiManager.a libFrameworkArduino.a libmbedtls.a libmbedcrypto.a libesp_https_ota.a libbt.a libhttp_parser.a | cut -c1-200
-          mkdir -p ../x; cp firmware.map ../x/ || true
+          find . -name 'firmware.map' -not -path './.git/*' | head
+          M=$(find . -name 'firmware.map' -not -path './.git/*' | head -1)
+          cp $M /tmp/map800.txt
+          python3 scripts/size_report.py /tmp/map800.txt libUpdate.a libHTTPClient.a libWebServer.a libWiFiManager.a libFrameworkArduino.a libmbedtls.a libmbedcrypto.a libesp_https_ota.a libbt.a libhttp_parser.a libmdns.a libesp_https_server.a libesp_http_server.a | cut -c1-160
+
+      - name: Build 7.1.3
+        if: always()
+        run: |
+          find . -name 'firmware.map' -not -path './.git/*' -delete
+          rm -rf .pio/build
+          sed -i 's/espressif32@8.0.0/espressif32@7.1.3/' platformio.ini
+          pio run -e esp-wrover-kit || true
+
+      - name: Size report 7.1.3
+        if: always()
+        run: |
+          M=$(find . -name 'firmware.map' -not -path './.git/*' | head -1)
+          cp $M /tmp/map713.txt
+          python3 scripts/size_report.py /tmp/map713.txt | cut -c1-160
+
+      - name: Compare
+        if: always()
+        run: python3 scripts/size_report.py --diff /tmp/map800.txt /tmp/map713.txt | cut -c1-160
 
       - name: Collect binaries
         run: |

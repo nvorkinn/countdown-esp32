@@ -1,5 +1,10 @@
 import re, sys, collections
-mp = sys.argv[1]
+def load(mp):
+  pass
+if sys.argv[1]=="--diff":
+    # delegated below
+    pass
+mp = sys.argv[2] if sys.argv[1]=="--diff" else sys.argv[1]
 lines = open(mp, errors="replace").read().split("\n")
 # locate sections
 try:
@@ -30,6 +35,19 @@ for l in lines[i0:ic]:
     else: arch = path.split("/")[-1]; ob = arch
     if arch.endswith(".o") and ("/src/" in path or "/lib/" in path or "esp-wrover" in path): arch = "PROJECT:" + path.split("/")[-2] + "/" + arch
     sizes[arch]+=sz; objs[arch+"|"+ob]+=sz
+if sys.argv[1]=="--diff":
+    import json
+    json.dump(dict(sizes), open("/tmp/sz_new.json","w"))
+    # second file
+    sys.argv=[sys.argv[0],sys.argv[3]]
+    exec(open(__file__).read().split("tot = sum")[0].replace('sys.argv[1]=="--diff"','False'))
+    old=dict(sizes); new=json.load(open("/tmp/sz_new.json"))
+    print("== diff 8.0.0 - 7.1.3, KB (archives) ==")
+    rows=[(new.get(k,0)-old.get(k,0),k,new.get(k,0),old.get(k,0)) for k in set(new)|set(old)]
+    rows.sort(reverse=True)
+    for d,k,n,o in rows[:25]+rows[-8:]: print("%+7.1f  new %6.1f old %6.1f %s"%(d/1024,n/1024,o/1024,k))
+    print("sum new %.1f old %.1f"%(sum(new.values())/1024,sum(old.values())/1024))
+    sys.exit(0)
 tot = sum(sizes.values())
 print("TOTAL flash-ish bytes in map: %d (%.1f KB)" % (tot, tot/1024))
 print("== by archive/object-dir (KB) ==")
