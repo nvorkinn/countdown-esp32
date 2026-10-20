@@ -32,8 +32,11 @@ class EpdPanel {
   // Like init(), but to draw a window. Partial refreshes leave ghosts behind, so EpdDisplay mixes in full ones.
   virtual bool initPartial() { return false; }
   // Draws `window` of `frame` (the whole frame, laid out as for display()) over what's on the panel; the rest of the
-  // picture stays as it is.
-  virtual bool displayPartial(const uint8_t* /*frame*/, const Window& /*window*/) { return false; }
+  // picture stays as it is. `previous` is the frame that is on the panel now, same layout: a panel that is powered
+  // down between updates has forgotten it, and needs it to know which pixels to drive.
+  virtual bool displayPartial(const uint8_t* /*frame*/, const uint8_t* /*previous*/, const Window& /*window*/) {
+    return false;
+  }
 };
 
 }  // namespace countdown

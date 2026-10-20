@@ -41,12 +41,14 @@ class Epd7in5V2 : public EpdPanel {
   // Waveshare's init_part() and display_Partial(): the panel's own fast waveform over a window.
   bool supportsPartial() const override { return true; }
   bool initPartial() override;
-  bool displayPartial(const uint8_t* frame, const Window& window) override;
+  bool displayPartial(const uint8_t* frame, const uint8_t* previous, const Window& window) override;
 
  private:
   void reset();
   void command(uint8_t command, std::initializer_list<uint8_t> data = {});
   bool waitBusy(uint32_t timeoutMs);
+  // Sends `window` of `frame`, inverted, to the panel's data register `command` (0x10 old, 0x13 new).
+  void sendWindow(uint8_t command, const uint8_t* frame, const Window& window);
 
   EpdBus& bus_;
 };
