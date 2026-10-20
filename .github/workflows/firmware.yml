@@ -67,6 +67,19 @@ jobs:
       - name: Build firmware
         run: pio run -e esp-wrover-kit -e esp-wrover-kit-it8951
 
+      - name: Size report
+        if: always()
+        run: |
+          T=$(ls -d ~/.platformio/packages/toolchain-xtensa-esp*/bin)
+          ls $T | grep -E 'nm|size' | head
+          E=.pio/build/esp-wrover-kit/firmware.elf
+          ls -la $E firmware.map || true
+          echo "== size -A =="; $T/xtensa-esp32-elf-size -A $E 2>/dev/null | head -30 || $T/xtensa-esp-elf-size -A $E | head -30
+          echo "== nm top 80 =="; ($T/xtensa-esp32-elf-nm --size-sort --demangle --radix=d $E || $T/xtensa-esp-elf-nm --size-sort --demangle --radix=d $E) | tail -80 | cut -c1-110
+          echo "== map =="
+          python3 scripts/size_report.py firmware.map libUpdate.a libHTTPClient.a libWebServer.a libWiFiManager.a libFrameworkArduino.a libmbedtls.a libmbedcrypto.a libesp_https_ota.a libbt.a libhttp_parser.a | cut -c1-200
+          mkdir -p ../x; cp firmware.map ../x/ || true
+
       - name: Collect binaries
         run: |
           mkdir -p dist
