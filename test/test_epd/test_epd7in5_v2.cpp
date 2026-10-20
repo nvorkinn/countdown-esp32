@@ -183,6 +183,53 @@ void test_sleep_gives_up_if_the_panel_never_powers_off() {
   assertLastEventIsPowerOff(bus);
 }
 
+void test_init_partial_sends_the_python_drivers_commands() {
+  FakeBus bus;
+  Epd7in5V2 panel(bus);
+
+  TEST_ASSERT_TRUE(panel.initPartial());
+
+  // epd7in5_V2.py's init_part()
+  assertCommands({{0x00, {0x1F}}, {0x04, {}}, {0x71, {}}, {0xE0, {0x02}}, {0xE5, {0x6E}}}, bus.commands());
+}
+
+void test_display_partial_sends_the_windows_rows_inverted() {
+  FakeBus bus;
+  Epd7in5V2 panel(bus);
+  const std::vector<uint8_t> frame = patternFrame();
+
+  TEST_ASSERT_TRUE(panel.displayPartial(frame.data(), Window{16, 2, 16, 2}));
+
+  std::vector<uint8_t> expected;
+  for (int y = 2; y < 4; ++y) {
+    for (int b = 2; b < 4; ++b) {
+      expected.push_back(static_cast<uint8_t>(~frame[y * 100 + b]));
+    }
+  }
+  const std::vector<CommandWithData> commands = bus.commandsWithoutStatusChecks();
+  assertCommands(
+      {
+          {0x50, {0xA9, 0x07}},
+          {0x91, {}},
+          {0x90, {0x00, 16, 0x00, 31, 0x00, 2, 0x00, 3, 0x01}},
+          {0x13, expected},
+          {0x12, {}},
+      },
+      commands);
+}
+
+void test_display_partial_refuses_a_window_that_is_not_on_byte_columns_or_off_the_panel() {
+  FakeBus bus;
+  Epd7in5V2 panel(bus);
+  const std::vector<uint8_t> frame = patternFrame();
+
+  TEST_ASSERT_FALSE(panel.displayPartial(frame.data(), Window{4, 0, 16, 2}));
+  TEST_ASSERT_FALSE(panel.displayPartial(frame.data(), Window{0, 0, 12, 2}));
+  TEST_ASSERT_FALSE(panel.displayPartial(frame.data(), Window{792, 0, 16, 2}));
+  TEST_ASSERT_FALSE(panel.displayPartial(frame.data(), Window{0, 479, 8, 2}));
+  TEST_ASSERT_TRUE(bus.events.empty());
+}
+
 }  // namespace
 
 void runEpd7in5V2Tests() {
@@ -195,4 +242,7 @@ void runEpd7in5V2Tests() {
   RUN_TEST(test_display_waits_up_to_a_minute_for_the_refresh);
   RUN_TEST(test_sleep_powers_the_panel_down_then_the_hat);
   RUN_TEST(test_sleep_gives_up_if_the_panel_never_powers_off);
+  RUN_TEST(test_init_partial_sends_the_python_drivers_commands);
+  RUN_TEST(test_display_partial_sends_the_windows_rows_inverted);
+  RUN_TEST(test_display_partial_refuses_a_window_that_is_not_on_byte_columns_or_off_the_panel);
 }

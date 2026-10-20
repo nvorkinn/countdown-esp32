@@ -132,6 +132,14 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    first poll fetches and draws the frame again. A `304` (like any 1xx or `204`) has no body, so none
    is read: only its headers (`Retry-After`, `ETag`) are used.
 
+   **Partial refresh (7.5" panel).** The board keeps the frame it last drew. When a new frame differs from it in
+   a small window (at most 25% of the screen, as the smallest byte-aligned rectangle that holds every change),
+   only that window is redrawn with the panel's fast waveform, with no full-screen flash (`PartialPolicy` in
+   `lib/epd/src/epd_display.h`). It draws in full instead for the first frame after a boot, a bigger change, the
+   frame after any failed draw, and after every 30 partial refreshes in a row, which clears the ghosting they leave.
+   The broker still just sends whole frames; nothing in the protocol changes. The 7.8" IT8951 panel always
+   refreshes in full.
+
 ## What each poll sends
 
 ```json
