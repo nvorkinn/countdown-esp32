@@ -6,6 +6,6 @@ dist/
 .vscode/ipch
 
 .venv/
-provision/preview.png
+provision/screens/
 __pycache__/
 .pytest_cache/

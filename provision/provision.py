@@ -21,6 +21,10 @@ SETUP_HEADER = struct.Struct("<4s64sI")  # the magic, the portal's password (NUL
 # Must match kDeviceName in src/device_name.h.
 PORTAL_URL = "http://countdown.local/wifi"
 
+# Every board's set-up screen, one PNG per network name: the record of which password went where. Git
+# ignores it, as it holds the passwords.
+SCREENS = Path(__file__).parent / "screens"
+
 # The dashboard's system screens' font, so this screen looks like the pairing screen that follows it.
 FONT = Path(__file__).parent / "fonts" / "Ubuntu-Medium.ttf"
 
@@ -55,21 +59,23 @@ def qr_code(data: str, size: int) -> Image.Image:
 
 
 def setup_screen(width: int, height: int, network: str, password: str) -> Image.Image:
-    # Laid out for 800x480 and scaled to the panel's height.
-    scale = height / 480
+    # Laid out for 800x480, scaled to fit the panel both ways (the 7.8" is 4:3, not 5:3) and centred
+    # top to bottom.
+    scale = min(width / 800, height / 480)
+    margin = round((height - 480 * scale) / 2)
 
     def font(size: int) -> ImageFont.FreeTypeFont:
         return ImageFont.truetype(FONT, round(size * scale))
 
     screen = Image.new("L", (width, height), 255)
     draw = ImageDraw.Draw(screen)
-    draw.text((width // 2, round(20 * scale)), "Set up this display", font=font(44), fill=0, anchor="mt")
+    draw.text((width // 2, margin + round(20 * scale)), "Set up this display", font=font(44), fill=0, anchor="mt")
     steps = [
         (f"WIFI:T:WPA;S:{network};P:{password};;", "1. Join the Wi-Fi", [network, f"Password: {password}"]),
         (PORTAL_URL, "2. Open the set-up page", [PORTAL_URL.removeprefix("http://")]),
     ]
     qr_size = round(240 * scale)
-    top = round(84 * scale)
+    top = margin + round(84 * scale)
     for column, (data, title, details) in enumerate(steps):
         centre = width * (2 * column + 1) // 4
         code = qr_code(data, qr_size)
@@ -112,7 +118,9 @@ def main() -> None:
         network = setup_network_name(esp.read_mac())
         password = new_password()
         screen = setup_screen(*PANELS[args.panel], network, password)
-        screen.save("preview.png")
+        SCREENS.mkdir(exist_ok=True)
+        record = SCREENS / f"{network}.png"
+        screen.save(record)
         data = setup_data(password, frame_bytes(screen))
         if len(data) > size:
             raise SystemExit(f"The set-up data is {len(data)} bytes; the `setup` partition holds {size}")
@@ -121,7 +129,7 @@ def main() -> None:
         write_flash(esp, [(offset, data)])
         reset_chip(esp, "hard-reset")
 
-    print(f"{network}: wrote the set-up screen and password (preview.png shows the screen)")
+    print(f"{network}: wrote the set-up screen and password, and saved the screen as {record}")
 
 
 if __name__ == "__main__":

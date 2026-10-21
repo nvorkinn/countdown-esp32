@@ -2,6 +2,7 @@
 
 #include <esp_partition.h>
 
+#include <new>
 #include <utility>
 
 #include "setup_screen.h"
@@ -31,7 +32,16 @@ std::optional<SetupScreen> readSetupScreen(countdown::Log& log) {
     log.warning("The setup partition holds no set-up screen: provision the board with provision/provision.py");
     return std::nullopt;
   }
-  std::vector<uint8_t> frame(parsed->frameBytes);
+  // A 7.8" frame needs PSRAM. On a board without it the allocation fails, and uncaught that would restart
+  // the board before the set-up network ever opened, on every boot. A frame for the wrong panel that does
+  // fit is turned down by the display instead.
+  std::vector<uint8_t> frame;
+  try {
+    frame.resize(parsed->frameBytes);
+  } catch (const std::bad_alloc&) {
+    log.warning("Not enough memory for the " + std::to_string(parsed->frameBytes) + "-byte set-up screen");
+    return std::nullopt;
+  }
   if (esp_partition_read(partition, countdown::kSetupHeaderBytes, frame.data(), frame.size()) != ESP_OK) {
     log.warning("Couldn't read the set-up screen from the setup partition");
     return std::nullopt;

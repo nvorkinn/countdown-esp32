@@ -19,7 +19,7 @@ class EpdPanel {
 
   virtual int width() const = 0;
   virtual int height() const = 0;
-  // Broker frames are row-padded, MSB-first monochrome: 0 is black, 1 is white.
+  // Broker frames are row-padded, MSB-first monochrome: 1 is black, 0 is white.
   size_t frameBytes() const { return static_cast<size_t>((width() + 7) / 8) * height(); }
 
   virtual bool init() = 0;
