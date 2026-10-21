@@ -109,8 +109,12 @@ cd provision
 uv run provision.py --port /dev/cu.usbmodemXXXX --panel 7in5_v2   # or --panel it8951
 ```
 
-It saves the screen as `preview.png` too. It writes only the `setup` partition, so it can run before or
-after flashing the firmware, and later uploads leave it alone; `pio run -t erase` wipes it. The partition
+It also saves the screen as `provision/screens/ePaper-Dashboard-XXXX.png`, which git ignores: keep it, as
+it's the record of that board's password. If a board's network wants a password its panel isn't showing
+(the 7.5" driver can't tell when no panel is attached, so it may think it drew the screen), look it up
+there, or run the script again, which writes a new password and screen. It writes only the `setup`
+partition, so it can run before or after flashing the firmware, and later uploads leave it alone;
+`pio run -t erase` wipes it. The partition
 holds `SET1`, the password (64 bytes, NUL-padded), the frame's length (4 bytes, little-endian) and the
 frame, in the broker's frame format. `uv run pytest` runs the script's tests.
 

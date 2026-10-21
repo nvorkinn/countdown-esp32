@@ -21,6 +21,10 @@ SETUP_HEADER = struct.Struct("<4s64sI")  # the magic, the portal's password (NUL
 # Must match kDeviceName in src/device_name.h.
 PORTAL_URL = "http://countdown.local/wifi"
 
+# Every board's set-up screen, one PNG per network name: the record of which password went where. Git
+# ignores it, as it holds the passwords.
+SCREENS = Path(__file__).parent / "screens"
+
 # The dashboard's system screens' font, so this screen looks like the pairing screen that follows it.
 FONT = Path(__file__).parent / "fonts" / "Ubuntu-Medium.ttf"
 
@@ -112,7 +116,9 @@ def main() -> None:
         network = setup_network_name(esp.read_mac())
         password = new_password()
         screen = setup_screen(*PANELS[args.panel], network, password)
-        screen.save("preview.png")
+        SCREENS.mkdir(exist_ok=True)
+        record = SCREENS / f"{network}.png"
+        screen.save(record)
         data = setup_data(password, frame_bytes(screen))
         if len(data) > size:
             raise SystemExit(f"The set-up data is {len(data)} bytes; the `setup` partition holds {size}")
@@ -121,7 +127,7 @@ def main() -> None:
         write_flash(esp, [(offset, data)])
         reset_chip(esp, "hard-reset")
 
-    print(f"{network}: wrote the set-up screen and password (preview.png shows the screen)")
+    print(f"{network}: wrote the set-up screen and password, and saved the screen as {record}")
 
 
 if __name__ == "__main__":
