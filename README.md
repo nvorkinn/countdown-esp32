@@ -29,7 +29,7 @@ pio run -e esp-wrover-kit-it8951 # build for the 7.8" 1872x1404 IT8951 HAT
 pio run -t upload             # build and flash the board on the default serial port
 pio device monitor            # open the serial monitor (115200 baud)
 pio test -e native            # run the unit tests in test/ on this machine
-pio run -t erase              # wipe the flash, NVS included (forgets Wi-Fi and the device secret)
+pio run -t erase              # wipe the flash: Wi-Fi, the device secret and the set-up screen
 ```
 
 The broker URL is a build flag, `BROKER_URL` in `platformio.ini`. To point a build somewhere else:
@@ -83,18 +83,36 @@ Replace the port and filename with yours; Windows ports look like `COM3`. With e
 the flash, then release it once connected. Reset the board afterwards.
 
 **A board built before the partition table changed needs the merged image once.** The firmware now uses a 3 MB app slot
-(`board_build.partitions = huge_app.csv`), and the partition table is in flash, so an application-only `firmware.bin`
+(`partitions.csv`), and the partition table is in flash, so an application-only `firmware.bin`
 flashed over an older table doesn't fit its smaller slot and won't boot. Flash the merged image at `0x0` (it also
 writes the new table), as above.
 
 **Treat merged images as fresh installs:** the padding covers NVS, so flashing one erases saved Wi-Fi
-and the device secret. The board will open its first-boot portal and register a new device. For updates
+and the device secret (it stops short of the `setup` partition, so the set-up screen stays). The board
+will open its first-boot portal and register a new device. For updates
 that preserve NVS, use PlatformIO upload or flash the matching application-only `firmware.bin` at its
 application offset (`0x10000` for these builds), with the existing matching bootloader/partition layout.
 Do not flash the application-only image at `0x0`.
 
 The broker URL and panel selection are baked into the binary; Wi-Fi credentials and the device secret
 are provisioned on the board, not included in the download.
+
+### Provisioning a board
+
+Each board gets its own set-up screen, written to the `setup` partition (`partitions.csv`) by
+`provision/provision.py`: a random password for the set-up network, and a frame with two QR codes, one
+that joins `ePaper-Dashboard-XXXX` (named from the board's MAC) and one that opens
+`http://countdown.local/wifi`. With the board on USB:
+
+```sh
+cd provision
+uv run provision.py --port /dev/cu.usbmodemXXXX --panel 7in5_v2   # or --panel it8951
+```
+
+It saves the screen as `preview.png` too. It writes only the `setup` partition, so it can run before or
+after flashing the firmware, and later uploads leave it alone; `pio run -t erase` wipes it. The partition
+holds `SET1`, the password (64 bytes, NUL-padded), the frame's length (4 bytes, little-endian) and the
+frame, in the broker's frame format. `uv run pytest` runs the script's tests.
 
 ### Coverage
 
@@ -108,9 +126,13 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 ## First boot
 
 1. With no Wi-Fi saved in NVS (`WIFI_SSID`, `WIFI_PASSWORD`), or if the saved network can't be joined
-   within 30 seconds, the board opens a set-up portal: an open Wi-Fi network named `ePaper-Dashboard-XXXX`.
-   On an iPhone no pop-up appears (the board answers Apple's connectivity check): join the network, open
-   Safari and go to any plain-http site such as `example.com`, which redirects to the set-up page. If
+   within 30 seconds, the board opens a set-up portal: a Wi-Fi network named `ePaper-Dashboard-XXXX`. On a
+   [provisioned](#provisioning-a-board) board the panel first shows the set-up screen, and the network takes
+   the password on it: its first QR code joins the network, its second opens `http://countdown.local/wifi`
+   in the phone's browser. On a board that wasn't provisioned, or if the panel couldn't draw the screen,
+   the network is open. On an iPhone no pop-up appears (the board answers Apple's connectivity check): join
+   the network, open Safari and go to `http://countdown.local/wifi` or any plain-http site such as
+   `example.com`, which redirects to the set-up page. If
    Safari insists on https, browse to `http://192.168.4.1` instead. Pick the network and save: the board
    joins it, closes the portal, and Safari opens the broker by itself once the phone is back online
    (if the password was wrong, the page returns to the set-up page after a minute). On Android the
@@ -151,7 +173,7 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 {
   "role": "display",
   "metrics": "esp32,device_id={device_id} uptime_s=3600i,free_heap=182344i,min_free_heap=150212i,free_psram=4100000i,wifi_rssi=-61i,reset_reason=1i,logs_dropped=0i",
-  "logs": [{"service": "countdown-esp32", "host": "countdown-esp-nikolai", "level": "info", "_msg": "Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\" seconds", "uptime_ms": 3599012}]
+  "logs": [{"service": "countdown-esp32", "host": "countdown", "level": "info", "_msg": "Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\" seconds", "uptime_ms": 3599012}]
 }
 ```
 
@@ -257,9 +279,13 @@ connector, or Wi-Fi only reaches a few metres.
   `../countdown/epd/src/countdown_epd/epd7in5_V2.py`. It drives the HAT's wires through the `EpdBus`
   interface in `epd_bus.h`. IT8951 uses the bidirectional word-oriented `It8951Bus` instead
 - `src/`: the ESP32 side: `main.cpp`, the ports' implementations (`esp_ports.cpp`), the Wi-Fi set-up
-  portal (`wifi_setup.cpp`), the HAT's wires over SPI (`esp_epd_bus.cpp`) and the broker's pinned root
-  certificates (`root_certs.h`)
-- `lib/portal/`: `captive_probe.h`, which recognises Apple's connectivity-check hosts (plain C++, tested on the host)
+  portal (`wifi_setup.cpp`) and its set-up screen from the `setup` partition (`setup_partition.cpp`), the
+  HAT's wires over SPI (`esp_epd_bus.cpp`) and the broker's pinned root certificates (`root_certs.h`)
+- `lib/portal/`: `captive_probe.h`, which recognises Apple's connectivity-check hosts, and `setup_screen.h`,
+  which reads the `setup` partition's header (plain C++, tested on the host)
+- `partitions.csv`: the flash layout: the core's `huge_app.csv` (a 3 MB app slot), with 384 KB of its SPIFFS
+  given to the `setup` partition
+- `provision/`: `provision.py`, which writes a board's set-up screen, and its tests
 - `test/test_broker_client/`: Unity tests for `lib/broker_client`, with fakes of the ports
 - `test/test_epd/`: Unity tests for `lib/epd`, against a fake HAT that records every command and wire change
 - `test/test_portal/`: Unity tests for `lib/portal`
@@ -271,4 +297,5 @@ connector, or Wi-Fi only reaches a few metres.
 `countdown-esp32` flag) and builds both panel variants on pushes to `main` and pull requests.
 The `firmware` artifact contains application-only and `-merged.bin` standalone images, with the
 environment and Git ref in each filename. Local builds generate the same merged images via
-`scripts/merge_firmware.py`.
+`scripts/merge_firmware.py`. `.github/workflows/provision.yml` runs the provisioning script's tests when
+`provision/` or `partitions.csv` changes.

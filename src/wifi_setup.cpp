@@ -8,12 +8,15 @@
 #include <mbedtls/sha256.h>
 #include <mbedtls/version.h>
 
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "captive_probe.h"
 #include "device_name.h"
 #include "display_registrar.h"
+#include "setup_partition.h"
 #include "token.h"
 
 namespace {
@@ -226,7 +229,7 @@ if(!v[0]&&v[1])location.href=u;else if(v[0]&&Date.now()-s>60000)location.href='/
 }
 
 void runPortal(countdown::Store& store, countdown::Random& random, countdown::Log& log,
-               const std::string& afterSetupUrl) {
+               const std::string& afterSetupUrl, countdown::Display& display) {
   PortalManager manager;
   // Must outlive manager: it keeps the pointer.
   const String head = String(kLogoStyle) + kHideNoApScript;
@@ -259,9 +262,20 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
       [&manager](arduino_event_id_t, arduino_event_info_t) { manager.onScanDone(WiFi.scanComplete()); },
       ARDUINO_EVENT_WIFI_SCAN_DONE);
   const String name = portalName();
-  log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() + " and browse to http://" +
+  // The set-up screen shows the network's password, so the network only gets one once the screen is
+  // up: a board that was never provisioned, or whose panel didn't draw it, opens it as before.
+  std::string password;
+  if (std::optional<SetupScreen> screen = readSetupScreen(log)) {
+    if (display.show(screen->frame)) {
+      password = std::move(screen->password);
+    } else {
+      log.warning("Couldn't show the set-up screen, so the set-up network is open");
+    }
+  }  // The frame is freed here, before the portal runs.
+  log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() +
+           (password.empty() ? " (open)" : " (password on the set-up screen)") + " and browse to http://" +
            kDeviceName + ".local/wifi (or 192.168.4.1)");
-  manager.startConfigPortal(name.c_str());
+  manager.startConfigPortal(name.c_str(), password.empty() ? nullptr : password.c_str());
   // Registered after WiFiManager's routes, so only otherwise-unknown paths reach this handler.
   manager.server->addHandler(new RedirectUnknownRequest(log));
   if (!MDNS.begin(kDeviceName)) {
@@ -302,7 +316,7 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
 }  // namespace
 
 void connectWifi(countdown::Store& store, countdown::Random& random, countdown::Log& log,
-                 const std::string& afterSetupUrl) {
+                 const std::string& afterSetupUrl, countdown::Display& display) {
   WiFi.setHostname(kDeviceName);  // before mode(), or the 2.x core ignores it
   WiFi.mode(WIFI_STA);
   // The credentials live in our NVS keys, not the Wi-Fi driver's own copy.
@@ -320,6 +334,6 @@ void connectWifi(countdown::Store& store, countdown::Random& random, countdown::
   } else {
     log.info("No Wi-Fi credentials saved");
   }
-  runPortal(store, random, log, afterSetupUrl);
+  runPortal(store, random, log, afterSetupUrl, display);
   log.info(std::string("Connected, IP: ") + WiFi.localIP().toString().c_str());
 }

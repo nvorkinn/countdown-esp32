@@ -54,10 +54,7 @@ void setup() {
   static EspRandom random;
   // Everything logs through this, so the broker gets the lines from Wi-Fi set-up on.
   static countdown::LogBuffer log(serialLog, clock);
-  connectWifi(store, random, log, BROKER_URL);
-
-  static DelaySleeper sleeper;
-  static EspMetrics metrics;
+  // Before Wi-Fi: the set-up portal shows its set-up screen on the panel.
 #if defined(EPD_PANEL_7IN5_V2)
   static EspEpdBus epdBus({EPD_PIN_DIN, EPD_PIN_CLK, EPD_PIN_CS, EPD_PIN_DC, EPD_PIN_RST, EPD_PIN_BUSY, EPD_PIN_PWR});
   static countdown::Epd7in5V2 panel(epdBus);
@@ -66,10 +63,14 @@ void setup() {
                           EPD_PIN_PWR, EPD_PIN_MISO});
   static countdown::It8951 panel(epdBus, log, IT8951_VCOM_MV);
 #endif
+  static countdown::EpdDisplay display(panel, log);
+  connectWifi(store, random, log, BROKER_URL, display);
+
+  static DelaySleeper sleeper;
+  static EspMetrics metrics;
   static EspHttp http(kBrokerRootCerts, panel.frameBytes());
   static countdown::DisplayRegistrar registrar(BROKER_URL, store, http, random, sleeper, log,
                                                panel.width(), panel.height());
-  static countdown::EpdDisplay display(panel, log);
   static countdown::FrameClient frameClient(registrar, http, display, sleeper, clock, log, metrics, kLogService, kDeviceName);
   client = &frameClient;
 }
