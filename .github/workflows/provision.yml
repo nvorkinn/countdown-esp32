@@ -1,0 +1,25 @@
+name: Provisioning
+
+on:
+  push:
+    branches: [main]
+    paths: [provision/**, partitions.csv, .github/workflows/provision.yml]
+  pull_request:
+    paths: [provision/**, partitions.csv, .github/workflows/provision.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: provision
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Run the provisioning script's tests
+        run: uv run pytest
