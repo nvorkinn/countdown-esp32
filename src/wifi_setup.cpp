@@ -74,7 +74,8 @@ bool join(const std::string& ssid, const std::string& password, countdown::Log& 
   return false;
 }
 
-// countdown- and the last two bytes of the MAC, so two boards' portals can be told apart.
+// ePaper-Dashboard- and the last two bytes of the MAC, so two boards' portals can be told apart.
+// provision/provision.py builds the same name for the set-up screen.
 String portalName() {
   String mac = WiFi.macAddress();  // AA:BB:CC:DD:EE:FF
   mac.replace(":", "");
