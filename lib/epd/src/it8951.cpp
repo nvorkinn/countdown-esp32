@@ -70,12 +70,13 @@ bool It8951::display(const uint8_t* frame) {
 
   // Big-endian 8-bpp pixels avoid firmware-specific 1-bpp modes. Expand only a small
   // chunk at a time; the broker's monochrome buffer remains the only frame-sized allocation.
+  // A set bit is black (grey level 0x00), a clear one white (0xFF).
   uint8_t pixels[1024];
   for (size_t offset = 0; offset < kFrameBytes;) {
     const size_t count = kFrameBytes - offset < sizeof(pixels) / 8 ? kFrameBytes - offset : sizeof(pixels) / 8;
     for (size_t i = 0; i < count; ++i) {
       for (size_t bit = 0; bit < 8; ++bit) {
-        pixels[i * 8 + bit] = (frame[offset + i] & (0x80 >> bit)) ? 0xFF : 0x00;
+        pixels[i * 8 + bit] = (frame[offset + i] & (0x80 >> bit)) ? 0x00 : 0xFF;
       }
     }
     bus_.write(pixels, count * 8);

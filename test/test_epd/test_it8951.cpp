@@ -178,8 +178,9 @@ void test_it8951_draws_the_entire_frame_in_bounded_chunks_then_sleeps() {
 
   TEST_ASSERT_EQUAL(2628288, s.bus.pixelBytes);
   TEST_ASSERT_LESS_OR_EQUAL(1024, s.bus.largestWrite);
-  const uint8_t first[] = {255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255};
-  const uint8_t last[] = {0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 255, 0, 255, 0, 255, 0};
+  // A set bit is black (0x00), a clear one white (0xFF), as the broker's frames have it.
+  const uint8_t first[] = {0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0};
+  const uint8_t last[] = {255, 255, 255, 255, 255, 255, 255, 255, 0, 255, 0, 255, 0, 255, 0, 255};
   TEST_ASSERT_EQUAL_HEX8_ARRAY(first, s.bus.firstPixels.data(), 16);
   TEST_ASSERT_EQUAL_HEX8_ARRAY(last, s.bus.lastPixels.data(), 16);
   TEST_ASSERT_TRUE(s.bus.hasCommand({0x0011, 0x020A, 0x0056}));

@@ -55,7 +55,7 @@ size, including chunked responses, and memory/read failures are logged rather th
 
 Panel selection is compiled in: each environment chooses exactly one `EPD_PANEL_*` flag and its wiring.
 Registration and frame validation get their dimensions from the same panel object. Polling, provisioning,
-logging and the broker's frame format are unchanged: row-padded, MSB-first, one bit per pixel, 0 black / 1 white.
+logging and the broker's frame format are unchanged: row-padded, MSB-first, one bit per pixel, 1 black / 0 white.
 The IT8951 driver expands that format into small 8-bpp transfer chunks and uses full GC16 refreshes;
 it does not allocate an expanded framebuffer or rely on firmware-specific fast-refresh modes.
 
