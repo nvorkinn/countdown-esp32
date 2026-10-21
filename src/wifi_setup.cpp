@@ -24,6 +24,10 @@ namespace {
 constexpr char kSsidKey[] = "WIFI_SSID";
 constexpr char kPasswordKey[] = "WIFI_PASSWORD";
 constexpr unsigned long kConnectTimeoutMs = 30 * 1000;
+// How long a saved network gets before the portal opens. After a power cut the router can take a few
+// minutes to come back, and until then the panel should keep its last dashboard, not switch to the
+// set-up screen. A network that's gone for good (a new router) still gets the portal after this.
+constexpr unsigned long kSavedNetworkPatienceMs = 5 * 60 * 1000;
 constexpr int kPortalTimeoutS = 5 * 60;
 
 // The Countdown logo above the portal's heading, as a CSS background so it needs no extra request
@@ -327,10 +331,13 @@ void connectWifi(countdown::Store& store, countdown::Random& random, countdown::
   const auto password = store.get(kPasswordKey);
   if (ssid && password) {
     log.info("Connecting to " + *ssid);
-    if (join(*ssid, *password, log)) {
-      log.info(std::string("Connected, IP: ") + WiFi.localIP().toString().c_str());
-      return;
-    }
+    const unsigned long start = millis();
+    do {
+      if (join(*ssid, *password, log)) {
+        log.info(std::string("Connected, IP: ") + WiFi.localIP().toString().c_str());
+        return;
+      }
+    } while (millis() - start < kSavedNetworkPatienceMs);
   } else {
     log.info("No Wi-Fi credentials saved");
   }

@@ -126,7 +126,9 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 ## First boot
 
 1. With no Wi-Fi saved in NVS (`WIFI_SSID`, `WIFI_PASSWORD`), or if the saved network can't be joined
-   within 30 seconds, the board opens a set-up portal: a Wi-Fi network named `ePaper-Dashboard-XXXX`. On a
+   within 5 minutes, the board opens a set-up portal: a Wi-Fi network named `ePaper-Dashboard-XXXX`. (A
+   saved network gets that long because a router can take a few minutes to come back after a power cut;
+   until then the panel keeps the last dashboard.) On a
    [provisioned](#provisioning-a-board) board the panel first shows the set-up screen, and the network takes
    the password on it: its first QR code joins the network, its second opens `http://countdown.local/wifi`
    in the phone's browser. On a board that wasn't provisioned, or if the panel couldn't draw the screen,
