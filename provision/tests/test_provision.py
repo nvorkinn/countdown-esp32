@@ -69,3 +69,12 @@ def test_missing_setup_partition(tmp_path, monkeypatch):
     monkeypatch.setattr(provision, "PARTITIONS", table)
     with pytest.raises(SystemExit):
         provision.setup_partition()
+
+
+@pytest.mark.parametrize("panel", provision.PANELS)
+@pytest.mark.parametrize("letter", "MW")
+def test_screen_keeps_clear_of_the_edges_with_the_widest_password(panel, letter):
+    width, height = provision.PANELS[panel]
+    screen = provision.setup_screen(width, height, "ePaper-Dashboard-3688", letter * 12)
+    left, top, right, bottom = screen.point(lambda pixel: 255 - pixel).getbbox()
+    assert left > 0 and top > 0 and right < width and bottom < height

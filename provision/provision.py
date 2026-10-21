@@ -59,21 +59,23 @@ def qr_code(data: str, size: int) -> Image.Image:
 
 
 def setup_screen(width: int, height: int, network: str, password: str) -> Image.Image:
-    # Laid out for 800x480 and scaled to the panel's height.
-    scale = height / 480
+    # Laid out for 800x480, scaled to fit the panel both ways (the 7.8" is 4:3, not 5:3) and centred
+    # top to bottom.
+    scale = min(width / 800, height / 480)
+    margin = round((height - 480 * scale) / 2)
 
     def font(size: int) -> ImageFont.FreeTypeFont:
         return ImageFont.truetype(FONT, round(size * scale))
 
     screen = Image.new("L", (width, height), 255)
     draw = ImageDraw.Draw(screen)
-    draw.text((width // 2, round(20 * scale)), "Set up this display", font=font(44), fill=0, anchor="mt")
+    draw.text((width // 2, margin + round(20 * scale)), "Set up this display", font=font(44), fill=0, anchor="mt")
     steps = [
         (f"WIFI:T:WPA;S:{network};P:{password};;", "1. Join the Wi-Fi", [network, f"Password: {password}"]),
         (PORTAL_URL, "2. Open the set-up page", [PORTAL_URL.removeprefix("http://")]),
     ]
     qr_size = round(240 * scale)
-    top = round(84 * scale)
+    top = margin + round(84 * scale)
     for column, (data, title, details) in enumerate(steps):
         centre = width * (2 * column + 1) // 4
         code = qr_code(data, qr_size)
