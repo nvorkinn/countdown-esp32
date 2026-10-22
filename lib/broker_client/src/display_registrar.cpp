@@ -20,8 +20,8 @@ DisplayRegistrar::DisplayRegistrar(const std::string& brokerUrl, Store& store, H
 void DisplayRegistrar::registerDevice() {
   const std::string url = brokerUrl_ + "/api/devices/register";
   while (true) {
-    // The secret is URL-safe base64, so it needs no escaping.
-    const std::string body = R"({"role":"display","secret":")" + secret_ + R"(","width":)" +
+    // The secret is URL-safe base64, so it needs no escaping. Both panels take the same frame format.
+    const std::string body = R"({"format":"mono-1bpp-packed","secret":")" + secret_ + R"(","width":)" +
                              std::to_string(width_) + R"(,"height":)" + std::to_string(height_) + "}";
     const HttpResponse response = http_.request("POST", url, body, secret_, "");
     if (!response.sent) {
@@ -42,7 +42,7 @@ void DisplayRegistrar::registerDevice() {
         delay = retryAfterSeconds(response.retryAfter);
         break;
       case 409:
-        log_.warning("The secret is registered with the other role; registering a new one");
+        log_.warning("The broker refused the secret (409); registering a new one");
         newSecret();
         continue;
       case 400:

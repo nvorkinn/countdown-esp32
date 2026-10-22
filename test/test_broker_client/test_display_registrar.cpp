@@ -13,7 +13,7 @@ using namespace countdown::testing;
 namespace {
 
 std::string registerBody(const std::string& secret) {
-  return R"({"role":"display","secret":")" + secret + R"(","width":800,"height":480})";
+  return R"({"format":"mono-1bpp-packed","secret":")" + secret + R"(","width":800,"height":480})";
 }
 
 void test_a_new_device_saves_its_secret_before_sending_it() {
@@ -29,7 +29,7 @@ void test_a_new_device_saves_its_secret_before_sending_it() {
   TEST_ASSERT_EQUAL_STD_STRING(kFirstToken, *sent.storedSecret);
 }
 
-void test_it_posts_the_display_role_and_secret_with_the_secret_as_bearer() {
+void test_it_posts_the_frame_format_and_secret_with_the_secret_as_bearer() {
   Board board;
   board.http.reply(201);
 
@@ -48,7 +48,7 @@ void test_registration_uses_the_selected_panel_dimensions() {
   DisplayRegistrar registrar(kBrokerUrl, board.store, board.http, board.random, board.sleeper, board.log, 1872, 1404);
   registrar.registerDevice();
   TEST_ASSERT_EQUAL_STD_STRING(
-      std::string(R"({"role":"display","secret":")") + kFirstToken + R"(","width":1872,"height":1404})",
+      std::string(R"({"format":"mono-1bpp-packed","secret":")") + kFirstToken + R"(","width":1872,"height":1404})",
       board.http.requests[0].body);
 }
 
@@ -144,17 +144,17 @@ void test_409_registers_a_new_secret_straight_away() {
   TEST_ASSERT_EQUAL_STD_STRING(registerBody(kFirstToken), retry.body);
   TEST_ASSERT_EQUAL_STD_STRING(kFirstToken, retry.bearer);
   TEST_ASSERT_EQUAL_STD_STRING(kFirstToken, *retry.storedSecret);
-  TEST_ASSERT_TRUE(board.log.has(LogLevel::Warning, "other role"));
+  TEST_ASSERT_TRUE(board.log.has(LogLevel::Warning, "refused the secret"));
 }
 
 void test_400_logs_the_brokers_reason_and_waits_the_default() {
   Board board;
-  board.http.reply(400, "5", R"({"error": "role must be one of renderer, display"})");
+  board.http.reply(400, "5", R"({"error": "format must be one of mono-1bpp-packed"})");
   board.http.reply(201);
 
   board.registrar().registerDevice();
 
-  TEST_ASSERT_TRUE(board.log.has(LogLevel::Error, "role must be one of renderer, display"));
+  TEST_ASSERT_TRUE(board.log.has(LogLevel::Error, "format must be one of mono-1bpp-packed"));
   TEST_ASSERT_EQUAL(kDefaultRetryS, board.sleeper.sleeps[0]);
 }
 
@@ -202,7 +202,7 @@ void test_retries_keep_the_same_secret() {
 
 void runDisplayRegistrarTests() {
   RUN_TEST(test_a_new_device_saves_its_secret_before_sending_it);
-  RUN_TEST(test_it_posts_the_display_role_and_secret_with_the_secret_as_bearer);
+  RUN_TEST(test_it_posts_the_frame_format_and_secret_with_the_secret_as_bearer);
   RUN_TEST(test_registration_uses_the_selected_panel_dimensions);
   RUN_TEST(test_a_saved_secret_is_reused_and_registered_again);
   RUN_TEST(test_an_empty_saved_secret_is_replaced);
