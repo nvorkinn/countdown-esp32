@@ -147,8 +147,8 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    set-up page opens in its own sheet, with no redirect afterwards. If nobody sets it up within
    5 minutes, the board restarts and tries the saved network again.
 2. It makes a device secret (like Python's `secrets.token_urlsafe(24)`), saves it to NVS as
-   `device_secret`, and registers with the broker, sending the selected panel's size (`width` and `height`,
-   800x480 or 1872x1404). It registers again on every boot, with the same secret.
+   `device_secret`, and registers with the broker, sending the frame format it draws (`"format": "mono-1bpp-packed"`, the same
+   for both panels) and the selected panel's size (`width` and `height`, 800x480 or 1872x1404). It registers again on every boot, with the same secret.
 3. It polls `/api/frame` with a `POST`, waiting as long as the broker's `Retry-After` says (60 seconds
    if it is missing or invalid). The broker works the header out so the next poll lands just after its
    next render (about :03 and :33 past the minute), so the wait counts from when the answer arrived: the time

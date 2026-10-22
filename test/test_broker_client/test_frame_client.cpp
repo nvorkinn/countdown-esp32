@@ -242,7 +242,7 @@ void test_401_registers_again_with_the_same_secret_on_the_next_tick() {
 
   TEST_ASSERT_EQUAL(2, c.count(kRegisterUrl));
   TEST_ASSERT_EQUAL_STD_STRING(kRegisterUrl, c.board.http.requests[2].url);
-  TEST_ASSERT_EQUAL_STD_STRING(R"({"role":"display","secret":"shh","width":800,"height":480})", c.board.http.requests[2].body);
+  TEST_ASSERT_EQUAL_STD_STRING(R"({"format":"mono-1bpp-packed","secret":"shh","width":800,"height":480})", c.board.http.requests[2].body);
   TEST_ASSERT_EQUAL_STD_STRING(kFrameUrl, c.board.http.requests[3].url);
   TEST_ASSERT_EQUAL_STD_STRING("shh", c.board.http.requests[3].bearer);
 }
