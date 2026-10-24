@@ -33,6 +33,12 @@ def test_header_is_what_the_firmware_parses():
     assert len(data) == 72 + 48000
 
 
+@pytest.mark.parametrize("password", ["1234567", "a" * 64, "caf\u00e9caf\u00e9caf\u00e9", "pass\nword12"])
+def test_password_the_firmware_would_reject_is_not_written(password):
+    with pytest.raises(ValueError):
+        provision.setup_data(password, bytes(8))
+
+
 def test_frame_bits_are_one_for_black():
     # As the dashboard's panel_bytes() packs every other frame: MSB first, 1 black, 0 white.
     image = Image.new("1", (16, 2), 1)

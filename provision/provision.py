@@ -94,6 +94,10 @@ def frame_bytes(screen: Image.Image) -> bytes:
 
 
 def setup_data(password: str, frame: bytes) -> bytes:
+    # The header's 64s field would silently cut a longer password, leaving the screen's QR code and the
+    # board disagreeing; parseSetupHeader() rejects anything but 8 to 63 printable ASCII characters.
+    if not (8 <= len(password) <= 63 and all(" " <= c <= "~" for c in password)):
+        raise ValueError("The portal password must be 8 to 63 printable ASCII characters")
     return SETUP_HEADER.pack(SETUP_MAGIC, password.encode(), len(frame)) + frame
 
 
