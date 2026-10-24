@@ -4,7 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Called by release.yml, which passes the release tag as `version`.
   workflow_call:
+    inputs:
+      version:
+        description: Names the binaries in place of the Git ref (the release tag). Also marks a release run, which skips the coverage upload.
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -13,16 +19,18 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/pip
             ~/.platformio/.cache
           key: ${{ runner.os }}-pio-native-${{ hashFiles('platformio.ini') }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -38,26 +46,45 @@ jobs:
           --print-summary --xml coverage.xml --fail-under-line 95 .pio/build/native
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
+        # Not on a release: the push to main already uploaded this commit's coverage.
+        if: ${{ !inputs.version }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
           flags: countdown-esp32
           disable_search: true
 
+  # One build per server: prod is what a plain `pio run -e esp-wrover-kit` builds, and dev is the same boards with
+  # the `-dev` environments (see [broker] in platformio.ini). Both are built on every run so a broken -dev
+  # environment shows up in a pull request, not at release time.
   build:
+    name: build (${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: prod
+            suffix: ""
+          - target: dev
+            suffix: "-dev"
+    env:
+      # The hardware environments: one per panel. Add a new one here and in platformio.ini (both targets).
+      HARDWARE: esp-wrover-kit esp-wrover-kit-it8951
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/pip
             ~/.platformio/.cache
           key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -65,20 +92,30 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Build firmware
-        run: pio run -e esp-wrover-kit -e esp-wrover-kit-it8951
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          envs=()
+          for hardware in $HARDWARE; do envs+=(-e "$hardware$SUFFIX"); done
+          pio run "${envs[@]}"
 
+      # countdown-esp32-<hardware env>-<target>-<ref>[-merged].bin; on a release the ref is the tag.
       - name: Collect binaries
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ inputs.version }}
         run: |
           mkdir -p dist
-          ref="${GITHUB_REF_NAME//\//-}"
-          for dir in .pio/build/*/; do
-            env=$(basename "$dir")
-            cp "$dir/firmware.bin" "dist/countdown-esp32-${env}-${ref}.bin"
-            cp "$dir/firmware-merged.bin" "dist/countdown-esp32-${env}-${ref}-merged.bin"
+          ref="${VERSION:-${GITHUB_REF_NAME//\//-}}"
+          for hardware in $HARDWARE; do
+            dir=".pio/build/$hardware$SUFFIX"
+            cp "$dir/firmware.bin" "dist/countdown-esp32-${hardware}-${TARGET}-${ref}.bin"
+            cp "$dir/firmware-merged.bin" "dist/countdown-esp32-${hardware}-${TARGET}-${ref}-merged.bin"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: firmware
+          name: firmware-${{ matrix.target }}
           path: dist/*.bin
           if-no-files-found: error

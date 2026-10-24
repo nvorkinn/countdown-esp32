@@ -26,13 +26,15 @@ Run these from this directory (`countdown-esp`):
 ```sh
 pio run -e esp-wrover-kit     # build the firmware
 pio run -e esp-wrover-kit-it8951 # build for the 7.8" 1872x1404 IT8951 HAT
+pio run -e esp-wrover-kit-dev # build for the dev/QA server (see "Targets: dev and prod")
 pio run -t upload             # build and flash the board on the default serial port
 pio device monitor            # open the serial monitor (115200 baud)
 pio test -e native            # run the unit tests in test/ on this machine
 pio run -t erase              # wipe the flash: Wi-Fi, the device secret and the set-up screen
 ```
 
-The broker URL is a build flag, `BROKER_URL` in `platformio.ini`. To point a build somewhere else:
+The broker URL is a build flag, `BROKER_URL`, set per [target](#targets-dev-and-prod) from the `[broker]` section of
+`platformio.ini`. To point a build somewhere else (a one-off, for a server of your own):
 
 ```sh
 PLATFORMIO_BUILD_FLAGS='-DBROKER_URL=\"http://192.168.1.10:8000\"' pio run -t upload
@@ -49,6 +51,7 @@ Each build writes `.pio/build/<environment>/firmware.bin` (application only) and
 | `esp-wrover-kit-it8951` | Waveshare 7.8" IT8951 HAT | 1872x1404 | 328,536 bytes |
 
 Use the same `-e` option when uploading, for example `pio run -e esp-wrover-kit-it8951 -t upload`.
+Each has a `-dev` twin for the dev/QA server, described next.
 Both environments target the ESP32-WROVER board; the 7.8" build requires working PSRAM. Large heap
 allocations explicitly use the PSRAM-enabled allocator. HTTP bodies are bounded to the panel's frame
 size, including chunked responses, and memory/read failures are logged rather than displaying a partial frame.
@@ -59,14 +62,45 @@ logging and the broker's frame format are unchanged: row-padded, MSB-first, one 
 The IT8951 driver expands that format into small 8-bpp transfer chunks and uses full GC16 refreshes;
 it does not allocate an expanded framebuffer or rely on firmware-specific fast-refresh modes.
 
+### Targets: dev and prod
+
+The firmware talks to one server, compiled in as `BROKER_URL`, and there are two: **prod**, the production
+server, and **dev**, the dev/QA one. Every panel has a build for each, one PlatformIO environment apiece:
+
+| Panel | prod | dev |
+|-------|------|-----|
+| 7.5" V2 | `esp-wrover-kit` (the default) | `esp-wrover-kit-dev` |
+| 7.8" IT8951 | `esp-wrover-kit-it8951` | `esp-wrover-kit-it8951-dev` |
+
+So `pio run -e esp-wrover-kit` builds for production, as it always has, and `pio run -e esp-wrover-kit-dev -t upload`
+flashes a board for dev. The two URLs are set in one place, the `[broker]` section of `platformio.ini`
+(`url_prod`, `url_dev`); the environments differ in nothing else. **Dev currently shares the production server:**
+both URLs are `https://auth.nikolaivorkinn.com`. When dev/QA moves to `https://auth.dev.nikolaivorkinn.com` (once its
+DNS exists), change `url_dev` and nothing else, then release again and flash the dev boards with the new build.
+
+Each server must serve a **Let's Encrypt certificate directly.** The firmware pins only the ISRG Root X1 and X2
+roots (`src/root_certs.h`), so a server behind a CDN or proxy that presents another CA's certificate (Cloudflare's
+proxy, for one) fails the TLS handshake and the board never registers. Turn the proxy off for that name (DNS only),
+or let the server get its own certificate. The same goes for any server of your own.
+
+A board belongs to the server it was flashed for. **Moving a board to the other environment means flashing it again**
+with the other target's binary (there is no over-the-air update, and the server isn't a setting on the board). The board
+registers with whatever server it was built for on every boot, so after the flash it appears there as a display; if
+that server has no record of it (it never registered there, or its secret was erased with a merged image, which also
+wipes the saved Wi-Fi, so the board runs its [first-boot set-up](#first-boot) again), pair it again there as you would
+a new display. While dev and prod share a server, a dev and a prod build are the same code talking to the same place.
+
 To add another controller, implement `EpdPanel` in `lib/epd/`, select it in `src/main.cpp`, and add a
 PlatformIO environment with the appropriate pins/transport. Dimensions alone cannot make a driver
 compatible with another controller.
 
 ### Flashing without PlatformIO
 
-Download the `firmware` artifact from a successful **Firmware** GitHub Actions run, unzip it, and select
-the file matching your board/panel whose name ends in **`-merged.bin`**. The build merges the bootloader,
+Get the binaries from a [release](#releases) (the **Releases** page), or from a successful **Firmware** GitHub
+Actions run, which has one artifact per target: `firmware-prod` and `firmware-dev` (unzip the one you need). The files
+are named `countdown-esp32-<environment>-<target>-<version or ref>[-merged].bin`. Pick the one that matches your
+panel (`esp-wrover-kit` is the 7.5" V2, `esp-wrover-kit-it8951` the 7.8" IT8951) **and the server the board belongs
+to** (`prod` or `dev`), and select the file whose name ends in **`-merged.bin`**. The build merges the bootloader,
 partition table, Arduino boot image and application using PlatformIO's actual upload offsets.
 
 In Espressif's Flash Download Tool, select **ESP32**, choose the merged file at address **`0x0`**,
@@ -75,7 +109,7 @@ browser flasher that accepts a local binary at `0x0` also works. No project chec
 needed on the flashing machine. With esptool v5:
 
 ```sh
-python -m esptool --chip esp32 --port /dev/cu.usbserial-XXXX write-flash 0x0 countdown-esp32-esp-wrover-kit-it8951-main-merged.bin
+python -m esptool --chip esp32 --port /dev/cu.usbserial-XXXX write-flash 0x0 countdown-esp32-esp-wrover-kit-it8951-prod-v1.2.3-merged.bin
 ```
 
 Replace the port and filename with yours; Windows ports look like `COM3`. With esptool v4, use
@@ -96,8 +130,28 @@ that preserve NVS, use PlatformIO upload or flash the matching application-only 
 application offset (`0x10000` for these builds), with the existing matching bootloader/partition layout.
 Do not flash the application-only image at `0x0`.
 
-The broker URL and panel selection are baked into the binary; Wi-Fi credentials and the device secret
+The broker URL (the target) and panel selection are baked into the binary; Wi-Fi credentials and the device secret
 are provisioned on the board, not included in the download.
+
+### Releases
+
+A release is a tag. Push a `v*` tag on a commit of `main` (for example `git tag v1.2.3 && git push origin v1.2.3`), or
+open **Actions > Release > Run workflow** on `main`, pick `patch`, `minor` or `major`, and the next `vX.Y.Z` is
+tagged on the head of `main` for you. The **Release** workflow (`.github/workflows/release.yml`) then refuses a tag
+that isn't on `main`, runs the native tests, builds every panel for both targets, and publishes a **pre-release** with
+generated notes and these files attached:
+
+```
+countdown-esp32-<environment>-<target>-<tag>.bin           application only
+countdown-esp32-<environment>-<target>-<tag>-merged.bin    standalone image, flash at 0x0
+SHA256SUMS.txt
+```
+
+for `<environment>` in `esp-wrover-kit`, `esp-wrover-kit-it8951` and `<target>` in `prod`, `dev`: eight binaries.
+To get a board onto a release, follow [Flashing without PlatformIO](#flashing-without-platformio) with the merged file
+for its panel and server. **Promoting a build to production is flashing the `prod` file;** nothing is deployed to the
+boards, as they have no over-the-air update. The workflow needs no secrets or settings beyond the repository's
+defaults.
 
 ### Provisioning a board
 
@@ -281,7 +335,7 @@ connector, or Wi-Fi only reaches a few metres.
 
 ## Layout
 
-- `platformio.ini`: build environments: `esp-wrover-kit` (the default), `esp-wrover-kit-it8951` and `native` (unit tests)
+- `platformio.ini`: build environments: `esp-wrover-kit` (the default), `esp-wrover-kit-it8951`, their `-dev` twins and `native` (unit tests), and the `[broker]` URLs
 - `lib/broker_client/`: registering and polling for frames, in plain C++ with no Arduino, so it can be
   tested on the host. What it needs from the board (HTTP, NVS, randomness, sleeping, logging, a clock,
   metrics, a display) are the interfaces in `ports.h`. `log_buffer.h` keeps log lines until the broker has them
@@ -304,8 +358,10 @@ connector, or Wi-Fi only reaches a few metres.
 ## CI
 
 `.github/workflows/firmware.yml` runs the native tests (uploading coverage to Codecov under the
-`countdown-esp32` flag) and builds both panel variants on pushes to `main` and pull requests.
-The `firmware` artifact contains application-only and `-merged.bin` standalone images, with the
-environment and Git ref in each filename. Local builds generate the same merged images via
-`scripts/merge_firmware.py`. `.github/workflows/provision.yml` runs the provisioning script's tests when
+`countdown-esp32` flag) and builds both panel variants for both [targets](#targets-dev-and-prod) on pushes to `main` and
+pull requests, so a broken `-dev` environment shows up before a release. The `firmware-prod` and `firmware-dev`
+artifacts each contain application-only and `-merged.bin` standalone images, with the environment, target and Git ref in
+each filename. Local builds generate the same merged images via `scripts/merge_firmware.py`.
+`.github/workflows/release.yml` makes [releases](#releases), reusing `firmware.yml` for the tests and builds.
+`.github/workflows/provision.yml` runs the provisioning script's tests when
 `provision/` or `partitions.csv` changes.
