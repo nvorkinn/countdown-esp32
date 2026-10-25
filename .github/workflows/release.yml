@@ -2,7 +2,7 @@ name: Release
 
 # Releasing is tagging: push a v* tag on a commit of main, or press "Run workflow" (Actions > Release) to have the next
 # tag made on the head of main. Either way the tests run, every panel is built for both servers (prod and dev), and
-# a GitHub pre-release holds the binaries. Boards are flashed by USB, so there is nothing to deploy: promoting a build
+# a GitHub release holds the binaries. Boards are flashed by USB, so there is nothing to deploy: promoting a build
 # means flashing the other server's binary (see "Releases" in the README).
 on:
   push:
@@ -124,6 +124,6 @@ jobs:
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" *.bin SHA256SUMS.txt --clobber
           else
-            gh release create "$TAG" --verify-tag --prerelease --title "$TAG" \
+            gh release create "$TAG" --verify-tag --title "$TAG" \
               --notes-file "$RUNNER_TEMP/notes.md" --generate-notes *.bin SHA256SUMS.txt
           fi
