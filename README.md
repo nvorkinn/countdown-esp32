@@ -138,7 +138,7 @@ are provisioned on the board, not included in the download.
 A release is a tag. Push a `v*` tag on a commit of `main` (for example `git tag v1.2.3 && git push origin v1.2.3`), or
 open **Actions > Release > Run workflow** on `main`, pick `patch`, `minor` or `major`, and the next `vX.Y.Z` is
 tagged on the head of `main` for you. The **Release** workflow (`.github/workflows/release.yml`) then refuses a tag
-that isn't on `main`, runs the native tests, builds every panel for both targets, and publishes a **pre-release** with
+that isn't on `main`, runs the native tests, builds every panel for both targets, and publishes a release with
 generated notes and these files attached:
 
 ```
