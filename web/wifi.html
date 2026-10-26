@@ -6,30 +6,37 @@
 <meta name="format-detection" content="telephone=no">
 <title>Countdown Wi-Fi set-up</title>
 <style>
-  /* A stand-in design, to be replaced. The script at the bottom only needs the elements with ids
-     and the classes it toggles: panel.waiting, panel.stopped, network.selected. Everything else
-     here is free to change. Open this file from disk to work on it: the script then talks to a
-     stand-in board instead of the real one (see mockApi below). */
+  /* The sign-in's look (../countdown-server/authentik-assets/countdown.css): the page drawn as the e-paper
+     screen in its black bezel, on a plain wall that is light by day and dark at night (the phone's light or
+     dark mode). The fonts and the walls are the files next to this one, copies of the sign-in's: keep them
+     identical. The script at the bottom only needs the elements with ids and the classes it toggles:
+     panel.waiting, panel.stopped, network.selected. Open this file from disk to work on it: the script then
+     talks to a stand-in board instead of the real one (see mockApi below), and the files load from the folder. */
+  @font-face { font-family: "Countdown Ubuntu"; font-weight: 400; font-display: swap; src: url("Ubuntu-Regular.woff2") format("woff2"); }
+  @font-face { font-family: "Countdown Ubuntu"; font-weight: 500; font-display: swap; src: url("Ubuntu-Medium.woff2") format("woff2"); }
+  @font-face { font-family: "Countdown Ubuntu"; font-weight: 700; font-display: swap; src: url("Ubuntu-Bold.woff2") format("woff2"); }
+
   :root {
     --tfl-red: #EE2E24;
-    --ink: #1d1f22;
-    --bg-page: #f3f4f1;
-    --bg-card: #ffffff;
-    --border: #dcded8;
-    --text-muted: #5d6268;
-    --selected: #fdecea;
-    --error-bg: #fdecea;
-    --error-text: #a3160e;
-    --font: -apple-system, BlinkMacSystemFont, system-ui, Inter, "Helvetica Neue", Arial, sans-serif;
+    --cd-ink: #141517;
+    --cd-paper: #ffffff;
+    --cd-bezel: #1d1e20;
+    --cd-wall-ink: #6f7276;
+    --cd-placeholder: #9a9ea3;
+    --cd-error: #c9190b;
+    --cd-font: "Countdown Ubuntu", "Ubuntu", system-ui, sans-serif;
+    /* The logo's own lettering (countdown-pill.svg), for the pill that animates while waiting. */
     --logo-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, Inter, "Helvetica Neue", Arial, sans-serif;
   }
 
   * { box-sizing: border-box; }
   html, body { margin: 0; }
+
+  /* ---- The wall ---- */
   body {
-    font-family: var(--font);
-    color: var(--ink);
-    background: var(--bg-page);
+    font-family: var(--cd-font);
+    color: var(--cd-ink);
+    background: #dcdcd5 url("wallpaper-day.jpg") center / cover no-repeat;
     min-height: 100vh;
     min-height: 100dvh;
     display: flex;
@@ -38,54 +45,84 @@
     padding: 16px;
     -webkit-text-size-adjust: 100%;
   }
+  @media (prefers-color-scheme: dark) {
+    :root { --cd-wall-ink: #a3a6aa; }
+    body { background: #202226 url("wallpaper-night.jpg") center / cover no-repeat; }
+  }
 
-  /* The panel grows with the network list until it would leave the screen; from then on the list
-     scrolls inside it, and the header, the password and the buttons stay where they are. */
+  /* ---- The screen ---- */
+  /* White e-paper inside a thick black bezel. It grows with the network list until it would leave the
+     screen; from then on the list scrolls inside it, and the header, the password and the buttons stay
+     where they are. */
   .panel {
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-width: 420px;
+    max-width: 460px;
     max-height: calc(100vh - 32px);
     max-height: calc(100dvh - 32px);
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, .06);
-    padding: 24px;
+    color: var(--cd-ink);
+    color-scheme: light;
+    background: var(--cd-paper);
+    border: 16px solid var(--cd-bezel);
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18), inset 0 2px 6px rgba(0, 0, 0, .08),
+      -20px 34px 50px -24px rgba(30, 25, 15, .45), -4px 8px 12px -6px rgba(30, 25, 15, .35);
+    padding: 18px 28px 30px;
+  }
+  @media (max-width: 600px) {
+    .panel { border-width: 12px; padding: 14px 18px 24px; }
   }
   .panel > * { flex: 0 0 auto; }
   .panel > .view-form { flex: 0 1 auto; min-height: 0; }
 
-  .panel-header {
-    text-align: center;
-    margin-bottom: 20px;
+  /* The panel header, as the screen draws one: the logo on the left, what this is on the right, a thick
+     rule under them. */
+  .screen-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 0 10px;
+    margin: 0 0 6px;
+    border-bottom: 3px solid var(--cd-ink);
   }
-  .panel-header h1 {
-    font-size: 22px;
-    font-weight: 700;
-    margin: 18px 0 6px;
-  }
-  .panel-header .subtitle {
-    color: var(--text-muted);
-    font-size: 15px;
-    line-height: 1.4;
-    margin: 0;
+  .screen-header .caption {
+    font: 500 12px var(--cd-font);
+    letter-spacing: .08em;
+    text-transform: uppercase;
   }
 
-  /* The logo, rebuilt so its letters can move: they flip over in turn like a departure board.
-     It only moves while the panel is waiting for something (panel.waiting). */
+  /* The title like a departure's destination. */
+  .title {
+    font: 500 34px / 1.1 var(--cd-font);
+    margin: 14px 0 8px;
+    text-align: left;
+  }
+  @media (max-width: 600px) {
+    .title { font-size: 28px; }
+  }
+  .note {
+    font: 400 15px / 1.4 var(--cd-font);
+    margin: 0 0 18px;
+  }
+
+  /* The logo, rebuilt so its letters can move: they flip over in turn like a departure board. It only
+     moves while the panel is waiting for something (panel.waiting). Drawn to the size of the logo in the
+     sign-in's header (26px high). */
   .loader-pill {
     position: relative;
     display: inline-flex;
-    gap: 2px;
-    padding: 8px 20px;
+    align-items: center;
+    height: 26px;
+    gap: 1px;
+    padding: 0 12px;
     border-radius: 9999px;
     background: var(--tfl-red);
     color: #fff;
-    font-size: 24px;
+    font-size: 15.5px;
     font-weight: 900;
-    letter-spacing: 1px;
+    letter-spacing: .8px;
+    line-height: 1;
     perspective: 400px;
   }
   .loader-pill, .loader-pill * { font-family: var(--logo-font); }
@@ -146,26 +183,26 @@
   .panel:not(.waiting) .loader-pill::after,
   .panel.stopped .loader-pill::before,
   .panel.stopped .loader-pill::after { content: none; }
-  .panel.stopped .loader-pill { background: var(--text-muted); }
+  .panel.stopped .loader-pill { background: var(--cd-wall-ink); }
 
   @media (prefers-reduced-motion: reduce) {
     .loader-pill, .loader-pill * { animation: none !important; }
     .loader-pill::before, .loader-pill::after { content: none; }
   }
 
+  /* ---- The form ---- */
   .view-form {
     display: flex;
     flex-direction: column;
   }
   .view-form > * { flex: 0 0 auto; }
-  .field { margin-bottom: 14px; }
+  .field { margin-bottom: 16px; }
+  /* Labels in small capitals, like "NOW PLAYING". */
   .field label, .field .label {
     display: block;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-muted);
+    font: 500 12px var(--cd-font);
+    letter-spacing: .08em;
     text-transform: uppercase;
-    letter-spacing: .04em;
     margin-bottom: 6px;
   }
   /* The one field that gives way: the list scrolls once the panel is as tall as the screen. */
@@ -179,31 +216,31 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 10px;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     flex: 0 1 auto;
     min-height: 0;
-    overscroll-behavior: contain;
   }
+  /* A network is a row on the screen, lined up with the label, with a hairline under it; the chosen one
+     gets a thicker line, as a field does when it has focus, and its name in medium. */
   .network {
     display: flex;
     align-items: center;
     gap: 12px;
     width: 100%;
-    padding: 12px 14px;
-    border: 0;
-    border-bottom: 1px solid var(--border);
+    padding: 9px 0;
     background: none;
-    font: inherit;
-    color: inherit;
+    border: 0;
+    border-bottom: 1px solid var(--cd-ink);
+    font: 400 19px var(--cd-font);
+    color: var(--cd-ink);
     text-align: left;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  .network:last-child { border-bottom: 0; }
-  .network.selected { background: var(--selected); }
+  .network.selected { box-shadow: inset 0 -1px 0 var(--cd-ink); }
+  .network.selected .name { font-weight: 500; }
   .network .name {
     flex: 1 1 auto;
     min-width: 0;
@@ -211,47 +248,48 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .network .other { color: var(--text-muted); }
-  .network svg { flex: 0 0 auto; width: 18px; height: 18px; fill: var(--text-muted); }
-  .network.selected svg { fill: var(--tfl-red); }
-  .network .signal rect { opacity: .25; }
+  .network .other { color: var(--cd-placeholder); }
+  .network svg { flex: 0 0 auto; width: 18px; height: 18px; fill: var(--cd-ink); }
+  .network .signal rect { opacity: .22; }
   .network .signal rect.on { opacity: 1; }
   .networks .empty {
-    padding: 14px;
-    color: var(--text-muted);
-    font-size: 15px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--cd-ink);
+    font: 400 16px / 1.4 var(--cd-font);
+    color: var(--cd-placeholder);
   }
 
+  /* A field is a hairline under the text, lined up with its label. Focus thickens the line. */
   input[type=text], input[type=password] {
     width: 100%;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    font: inherit;
-    font-size: 17px;  /* 16px or more, or iOS zooms in on focus */
-    background: #fff;
-    color: inherit;
+    background: transparent;
+    color: var(--cd-ink);
+    border: 0;
+    border-bottom: 1px solid var(--cd-ink);
+    border-radius: 0;
+    font: 400 22px var(--cd-font);
+    padding: 6px 0;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
   }
-  input:focus { outline: 2px solid var(--tfl-red); outline-offset: 1px; border-color: transparent; }
+  input:focus { box-shadow: inset 0 -1px 0 var(--cd-ink); }
   .checkbox {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 8px;
-    font-size: 14px;
-    color: var(--text-muted);
+    margin-top: 10px;
+    font: 400 14px var(--cd-font);
   }
-  .checkbox input { margin: 0; }
+  .checkbox input { margin: 0; accent-color: var(--cd-ink); }
 
   .error {
-    background: var(--error-bg);
-    color: var(--error-text);
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 14px;
-    margin-bottom: 14px;
+    color: var(--cd-error);
+    font: 400 14px / 1.4 var(--cd-font);
+    margin-bottom: 12px;
   }
 
+  /* The main button like the screen's "NOW" tab: a black pill. The other one the same pill, outlined. */
   .actions {
     display: flex;
     gap: 10px;
@@ -259,41 +297,45 @@
   }
   .btn {
     flex: 1 1 0;
-    padding: 13px 16px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: #fff;
-    color: var(--ink);
-    font: inherit;
-    font-size: 16px;
-    font-weight: 600;
+    display: inline-block;
+    padding: 12px 0;
+    border-radius: 999px;
+    border: 1.5px solid var(--cd-ink);
+    background: transparent;
+    color: var(--cd-ink);
+    font: 500 14px var(--cd-font);
+    letter-spacing: .04em;
     text-align: center;
     text-decoration: none;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
   .btn-primary {
-    background: var(--tfl-red);
-    border-color: var(--tfl-red);
+    background: var(--cd-ink);
+    border-color: var(--cd-ink);
     color: #fff;
+    font: 700 15px var(--cd-font);
+    letter-spacing: .1em;
+    text-transform: uppercase;
   }
-  .btn:disabled { opacity: .45; cursor: default; }
+  .btn-primary:active { background: #000; border-color: #000; }
+  .btn:disabled { opacity: .35; cursor: default; }
 
-  .view-wait { text-align: center; }
-  .view-wait .btn { display: inline-block; width: 100%; }
+  .view-wait .btn { display: block; width: 100%; }
 
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main class="panel" id="panel">
-  <header class="panel-header">
+  <header class="screen-header">
     <div class="loader-pill" role="img" aria-label="Countdown">
       <span aria-hidden="true" style="--i:0">C</span><span aria-hidden="true" style="--i:1">O</span><span aria-hidden="true" style="--i:2">U</span><span aria-hidden="true" style="--i:3">N</span><span aria-hidden="true" style="--i:4">T</span><span aria-hidden="true" style="--i:5">D</span><span aria-hidden="true" style="--i:6">O</span><span aria-hidden="true" style="--i:7">W</span><span aria-hidden="true" style="--i:8">N</span><span class="sheen" aria-hidden="true"></span>
     </div>
-    <h1 id="title">Connect to Wi-Fi</h1>
-    <p class="subtitle" id="subtitle" role="status">Pick your home network and enter its password.</p>
+    <span class="caption">Wi-Fi set-up</span>
   </header>
+  <h1 class="title" id="title">Connect to Wi-Fi</h1>
+  <p class="note" id="subtitle" role="status">Pick your home network and enter its password.</p>
 
   <section class="view-form" id="view-form" hidden>
     <div class="error" id="error" role="alert" hidden></div>

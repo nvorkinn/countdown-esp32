@@ -347,8 +347,11 @@ connector, or Wi-Fi only reaches a few metres.
   portal (`wifi_setup.cpp`: the access point, its DNS and the page's calls) and its set-up screen from the
   `setup` partition (`setup_partition.cpp`), the HAT's wires over SPI (`esp_epd_bus.cpp`) and the broker's
   pinned root certificates (`root_certs.h`)
-- `web/`: `wifi.html`, the set-up page, embedded in the firmware (`board_build.embed_txtfiles`). Open it
-  from disk to work on its design: it then talks to a stand-in board inside the page
+- `web/`: `wifi.html`, the set-up page, and the fonts and walls it's drawn with, all embedded in the firmware
+  (`board_build.embed_txtfiles` and `embed_files`) and served by the board, as the phone has no internet
+  during set-up. The page has the sign-in's look, and the fonts (Ubuntu, under `UFL.txt`) and walls are copies
+  of the sign-in's in `../countdown-server/authentik-assets/`: keep them identical. Open the page from disk to
+  work on its design: it then talks to a stand-in board inside the page
 - `lib/portal/`: `captive_probe.h`, which recognises Apple's connectivity-check hosts, `portal_api.h`, the
   set-up page's JSON and the state of an attempt to join a network, and `setup_screen.h`, which reads the
   `setup` partition's header (plain C++, tested on the host)
