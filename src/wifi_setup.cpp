@@ -22,10 +22,35 @@
 
 // web/wifi.html, put in the firmware by board_build.embed_txtfiles in platformio.ini (NUL-terminated).
 extern const char kPortalPage[] asm("_binary_web_wifi_html_start");
+// The fonts and walls the page is drawn with (board_build.embed_files), served by name next to it.
+#define EMBEDDED_FILE(name, symbol)                                   \
+  extern const char name##Start[] asm("_binary_web_" symbol "_start"); \
+  extern const char name##End[] asm("_binary_web_" symbol "_end");
+EMBEDDED_FILE(kUbuntuRegular, "Ubuntu_Regular_woff2")
+EMBEDDED_FILE(kUbuntuMedium, "Ubuntu_Medium_woff2")
+EMBEDDED_FILE(kUbuntuBold, "Ubuntu_Bold_woff2")
+EMBEDDED_FILE(kWallpaperDay, "wallpaper_day_jpg")
+EMBEDDED_FILE(kWallpaperNight, "wallpaper_night_jpg")
+#undef EMBEDDED_FILE
 
 namespace {
 
 using countdown::ConnectAttempt;
+
+struct EmbeddedFile {
+  const char* path;
+  const char* type;
+  const char* start;
+  const char* end;
+};
+
+const EmbeddedFile kPortalFiles[] = {
+    {"/Ubuntu-Regular.woff2", "font/woff2", kUbuntuRegularStart, kUbuntuRegularEnd},
+    {"/Ubuntu-Medium.woff2", "font/woff2", kUbuntuMediumStart, kUbuntuMediumEnd},
+    {"/Ubuntu-Bold.woff2", "font/woff2", kUbuntuBoldStart, kUbuntuBoldEnd},
+    {"/wallpaper-day.jpg", "image/jpeg", kWallpaperDayStart, kWallpaperDayEnd},
+    {"/wallpaper-night.jpg", "image/jpeg", kWallpaperNightStart, kWallpaperNightEnd},
+};
 
 constexpr char kSsidKey[] = "WIFI_SSID";
 constexpr char kPasswordKey[] = "WIFI_PASSWORD";
@@ -184,6 +209,9 @@ class Portal {
     server_.addHandler(new AppleProbeSuccess(server_));
     server_.addHandler(new RedirectToPortal(server_, log_));
     server_.on("/wifi", HTTP_GET, [this] { sendPage(); });
+    for (const EmbeddedFile& file : kPortalFiles) {
+      server_.on(file.path, HTTP_GET, [this, &file] { sendFile(file); });
+    }
     server_.on("/scan", HTTP_GET, [this] { sendNetworks(); });
     server_.on("/scan", HTTP_POST, [this] { rescan(); });
     server_.on("/connect", HTTP_POST, [this] { connect(); });
@@ -246,6 +274,13 @@ class Portal {
   void sendPage() {
     server_.sendHeader("Cache-Control", "no-store");
     server_.send(200, "text/html; charset=utf-8", kPortalPage);
+  }
+
+  // Straight from flash, in pieces (send_P), so a 100 KB wall never sits in RAM. Cached by the
+  // phone for the day, so reloads of the page only fetch the page.
+  void sendFile(const EmbeddedFile& file) {
+    server_.sendHeader("Cache-Control", "max-age=86400");
+    server_.send_P(200, file.type, file.start, file.end - file.start);
   }
 
   void startScan() {
