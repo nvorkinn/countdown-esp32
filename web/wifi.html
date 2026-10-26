@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<title>Countdown Wi-Fi set-up</title>
+<style>
+  /* A stand-in design, to be replaced. The script at the bottom only needs the elements with ids
+     and the classes it toggles: panel.waiting, panel.stopped, network.selected. Everything else
+     here is free to change. Open this file from disk to work on it: the script then talks to a
+     stand-in board instead of the real one (see mockApi below). */
+  :root {
+    --tfl-red: #EE2E24;
+    --ink: #1d1f22;
+    --bg-page: #f3f4f1;
+    --bg-card: #ffffff;
+    --border: #dcded8;
+    --text-muted: #5d6268;
+    --selected: #fdecea;
+    --error-bg: #fdecea;
+    --error-text: #a3160e;
+    --font: -apple-system, BlinkMacSystemFont, system-ui, Inter, "Helvetica Neue", Arial, sans-serif;
+    --logo-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, Inter, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: var(--font);
+    color: var(--ink);
+    background: var(--bg-page);
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* The panel grows with the network list until it would leave the screen; from then on the list
+     scrolls inside it, and the header, the password and the buttons stay where they are. */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 420px;
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .06);
+    padding: 24px;
+  }
+  .panel > * { flex: 0 0 auto; }
+  .panel > .view-form { flex: 0 1 auto; min-height: 0; }
+
+  .panel-header {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .panel-header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 18px 0 6px;
+  }
+  .panel-header .subtitle {
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  /* The logo, rebuilt so its letters can move: they flip over in turn like a departure board.
+     It only moves while the panel is waiting for something (panel.waiting). */
+  .loader-pill {
+    position: relative;
+    display: inline-flex;
+    gap: 2px;
+    padding: 8px 20px;
+    border-radius: 9999px;
+    background: var(--tfl-red);
+    color: #fff;
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    perspective: 400px;
+  }
+  .loader-pill, .loader-pill * { font-family: var(--logo-font); }
+  .loader-pill span {
+    display: inline-block;
+    animation: flap 3.2s cubic-bezier(.5, 0, .3, 1) infinite;
+    animation-delay: calc(var(--i) * 70ms);
+  }
+  /* A light sweeping across the pill, clipped to it. */
+  .loader-pill .sheen {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .loader-pill .sheen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .45) 50%, transparent 65%);
+    transform: translateX(-100%);
+    animation: sheen 3.2s ease-in-out infinite;
+  }
+  /* Rings pulsing out from the pill, as the board comes online. */
+  .loader-pill::before,
+  .loader-pill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 2px solid var(--tfl-red);
+    opacity: 0;
+    animation: ring 2.4s ease-out infinite;
+  }
+  .loader-pill::after { animation-delay: 1.2s; }
+
+  @keyframes flap {
+    0%, 55% { transform: rotateX(0); }
+    62% { transform: rotateX(-90deg); opacity: .5; }
+    63% { transform: rotateX(90deg); opacity: .5; }
+    72%, 100% { transform: rotateX(0); opacity: 1; }
+  }
+  @keyframes sheen {
+    0%, 20% { transform: translateX(-100%); }
+    60%, 100% { transform: translateX(100%); }
+  }
+  @keyframes ring {
+    0% { transform: scale(1); opacity: .5; }
+    100% { transform: scale(1.35, 1.9); opacity: 0; }
+  }
+
+  .panel:not(.waiting) .loader-pill,
+  .panel:not(.waiting) .loader-pill *,
+  .panel.stopped .loader-pill,
+  .panel.stopped .loader-pill * { animation: none; }
+  .panel:not(.waiting) .loader-pill::before,
+  .panel:not(.waiting) .loader-pill::after,
+  .panel.stopped .loader-pill::before,
+  .panel.stopped .loader-pill::after { content: none; }
+  .panel.stopped .loader-pill { background: var(--text-muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .loader-pill, .loader-pill * { animation: none !important; }
+    .loader-pill::before, .loader-pill::after { content: none; }
+  }
+
+  .view-form {
+    display: flex;
+    flex-direction: column;
+  }
+  .view-form > * { flex: 0 0 auto; }
+  .field { margin-bottom: 14px; }
+  .field label, .field .label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: 6px;
+  }
+  /* The one field that gives way: the list scrolls once the panel is as tall as the screen. */
+  .field-networks {
+    display: flex;
+    flex-direction: column;
+    flex: 0 1 auto;
+    min-height: 0;
+  }
+  .networks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    flex: 0 1 auto;
+    min-height: 0;
+    overscroll-behavior: contain;
+  }
+  .network {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .network:last-child { border-bottom: 0; }
+  .network.selected { background: var(--selected); }
+  .network .name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .network .other { color: var(--text-muted); }
+  .network svg { flex: 0 0 auto; width: 18px; height: 18px; fill: var(--text-muted); }
+  .network.selected svg { fill: var(--tfl-red); }
+  .network .signal rect { opacity: .25; }
+  .network .signal rect.on { opacity: 1; }
+  .networks .empty {
+    padding: 14px;
+    color: var(--text-muted);
+    font-size: 15px;
+  }
+
+  input[type=text], input[type=password] {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font: inherit;
+    font-size: 17px;  /* 16px or more, or iOS zooms in on focus */
+    background: #fff;
+    color: inherit;
+  }
+  input:focus { outline: 2px solid var(--tfl-red); outline-offset: 1px; border-color: transparent; }
+  .checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+  .checkbox input { margin: 0; }
+
+  .error {
+    background: var(--error-bg);
+    color: var(--error-text);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+
+  .actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .btn {
+    flex: 1 1 0;
+    padding: 13px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-primary {
+    background: var(--tfl-red);
+    border-color: var(--tfl-red);
+    color: #fff;
+  }
+  .btn:disabled { opacity: .45; cursor: default; }
+
+  .view-wait { text-align: center; }
+  .view-wait .btn { display: inline-block; width: 100%; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="panel" id="panel">
+  <header class="panel-header">
+    <div class="loader-pill" role="img" aria-label="Countdown">
+      <span aria-hidden="true" style="--i:0">C</span><span aria-hidden="true" style="--i:1">O</span><span aria-hidden="true" style="--i:2">U</span><span aria-hidden="true" style="--i:3">N</span><span aria-hidden="true" style="--i:4">T</span><span aria-hidden="true" style="--i:5">D</span><span aria-hidden="true" style="--i:6">O</span><span aria-hidden="true" style="--i:7">W</span><span aria-hidden="true" style="--i:8">N</span><span class="sheen" aria-hidden="true"></span>
+    </div>
+    <h1 id="title">Connect to Wi-Fi</h1>
+    <p class="subtitle" id="subtitle" role="status">Pick your home network and enter its password.</p>
+  </header>
+
+  <section class="view-form" id="view-form" hidden>
+    <div class="error" id="error" role="alert" hidden></div>
+
+    <div class="field field-networks">
+      <span class="label" id="networks-label">Network</span>
+      <ul class="networks" id="networks" role="listbox" aria-labelledby="networks-label"></ul>
+    </div>
+
+    <div class="field" id="field-ssid" hidden>
+      <label for="ssid">Network name</label>
+      <input type="text" id="ssid" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="32">
+    </div>
+
+    <div class="field" id="field-password">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="63">
+      <label class="checkbox"><input type="checkbox" id="show-password"> Show password</label>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="rescan">Rescan</button>
+      <button type="button" class="btn btn-primary" id="connect" disabled>Connect</button>
+    </div>
+  </section>
+
+  <section class="view-wait" id="view-wait" hidden>
+    <a class="btn btn-primary" id="wait-link" hidden>Open Countdown</a>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // The board's API, all on this origin:
+  //   GET  /scan     -> {"scanning": bool, "networks": [{"ssid", "rssi", "secure"}, ...]}
+  //                     (the last scan's list; a stale one is scanned again, so poll while scanning)
+  //   POST /scan     -> {"scanning": true}  (starts a new scan)
+  //   POST /connect  -> {"state": "connecting"}, with ssid and password as a form; 400 with
+  //                     {"error"} if they can't be right, 409 if the board is busy (try again)
+  //   GET  /status   -> {"state": "idle"|"connecting"|"connected"|"failed", "ssid",
+  //                     "reason" (failed), "next" (connected: where to send the browser)}
+  var SCAN_POLL_MS = 1500;
+  var STATUS_POLL_MS = 1000;
+  var CONNECT_RETRY_MS = 15000;    // how long to keep asking a busy board to start connecting
+  var STATUS_PATIENCE_MS = 60000;  // how long /status may go unanswered: the phone may drop off the
+                                   // access point for a moment while the board joins the router
+  var HANDOFF_GIVE_UP_MS = 90000;  // how long to wait for the phone to be back online
+
+  var $ = function (id) { return document.getElementById(id); };
+  var el = {
+    panel: $('panel'), title: $('title'), subtitle: $('subtitle'),
+    form: $('view-form'), error: $('error'), networks: $('networks'),
+    fieldSsid: $('field-ssid'), ssid: $('ssid'),
+    fieldPassword: $('field-password'), password: $('password'), showPassword: $('show-password'),
+    rescan: $('rescan'), connect: $('connect'),
+    wait: $('view-wait'), waitLink: $('wait-link')
+  };
+
+  var networks = [];
+  var selected = null;  // {ssid, secure}, or {other: true} for a name typed in
+
+  // ---- talking to the board --------------------------------------------------------------------
+
+  function asJson(response) {
+    return response.json().catch(function () { return {}; }).then(function (data) {
+      if (!response.ok) {
+        var error = new Error(data.error || ('The board answered ' + response.status));
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    });
+  }
+  function get(path) { return fetch(path, {cache: 'no-store'}).then(asJson); }
+  function post(path, body) {
+    return fetch(path, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: body
+    }).then(asJson);
+  }
+  var api = {
+    scan: function () { return get('/scan'); },
+    rescan: function () { return post('/scan', ''); },
+    connect: function (ssid, password) {
+      return post('/connect', 'ssid=' + encodeURIComponent(ssid) + '&password=' + encodeURIComponent(password));
+    },
+    status: function () { return get('/status'); }
+  };
+
+  // Opened from disk, for working on the design: a board that finds a few networks after a
+  // moment, joins any of them unless the password is "wrong", and then sends you to example.com.
+  function mockApi() {
+    var sample = [
+      {ssid: 'Home', rssi: -48, secure: true}, {ssid: 'Home 5G', rssi: -58, secure: true},
+      {ssid: 'Telenor-2.4G-A1B2', rssi: -66, secure: true}, {ssid: 'Neighbours', rssi: -71, secure: true},
+      {ssid: 'Café ☕', rssi: -74, secure: false}, {ssid: 'Printer-Direct-9F', rssi: -77, secure: true},
+      {ssid: 'Guest', rssi: -80, secure: false}, {ssid: 'Altibox123456', rssi: -84, secure: true},
+      {ssid: 'Get-2G-5F6E', rssi: -86, secure: true}, {ssid: 'iPhone', rssi: -88, secure: true}
+    ];
+    var scanUntil = Date.now() + 1500, state = 'idle', doneAt = 0, password = '';
+    return {
+      scan: function () { return Promise.resolve({scanning: Date.now() < scanUntil, networks: sample}); },
+      rescan: function () { scanUntil = Date.now() + 1500; return Promise.resolve({scanning: true}); },
+      connect: function (ssid, pw) { state = 'connecting'; password = pw; doneAt = Date.now() + 3000; return Promise.resolve({state: state}); },
+      status: function () {
+        if (state === 'connecting' && Date.now() >= doneAt) { state = password === 'wrong' ? 'failed' : 'connected'; }
+        return Promise.resolve({state: state, reason: 'connection failed (wrong password?)', next: 'https://example.com/pair?t=demo'});
+      }
+    };
+  }
+  if (location.protocol === 'file:') { api = mockApi(); }
+
+  function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
+  // ---- the two views ---------------------------------------------------------------------------
+
+  function showWaiting(title, note) {
+    el.panel.classList.add('waiting');
+    el.panel.classList.remove('stopped');
+    el.title.textContent = title;
+    el.subtitle.textContent = note || '';
+    el.waitLink.hidden = true;
+    el.form.hidden = true;
+    el.wait.hidden = false;
+  }
+  function stopWaiting(note, link) {
+    el.panel.classList.add('stopped');
+    el.subtitle.textContent = note;
+    if (link) { el.waitLink.href = link; el.waitLink.hidden = false; }
+  }
+  function showForm(error) {
+    el.panel.classList.remove('waiting', 'stopped');
+    el.title.textContent = 'Connect to Wi-Fi';
+    el.subtitle.textContent = 'Pick your home network and enter its password.';
+    el.error.textContent = error || '';
+    el.error.hidden = !error;
+    el.wait.hidden = true;
+    el.form.hidden = false;
+  }
+
+  // ---- the network list ------------------------------------------------------------------------
+
+  function signalIcon(rssi) {
+    var bars = rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : 1;
+    var svg = '<svg class="signal" viewBox="0 0 18 18" aria-hidden="true">';
+    for (var i = 0; i < 4; i++) {
+      var h = 4 + i * 4;
+      svg += '<rect x="' + (i * 4.5) + '" y="' + (18 - h) + '" width="3.5" height="' + h + '" rx="1"' + (i < bars ? ' class="on"' : '') + '/>';
+    }
+    return svg + '</svg>';
+  }
+  var lockIcon = '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="M5 7V5.5a4 4 0 0 1 8 0V7h.5A1.5 1.5 0 0 1 15 8.5v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 14.5v-6A1.5 1.5 0 0 1 4.5 7H5zm1.8 0h4.4V5.5a2.2 2.2 0 0 0-4.4 0V7z"/></svg>';
+
+  function row(name, icons, onPick, isOther) {
+    var li = document.createElement('li');
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'network';
+    button.setAttribute('role', 'option');
+    var label = document.createElement('span');
+    label.className = 'name' + (isOther ? ' other' : '');
+    label.textContent = name;
+    button.appendChild(label);
+    button.insertAdjacentHTML('beforeend', icons);
+    button.addEventListener('click', onPick);
+    li.appendChild(button);
+    return li;
+  }
+
+  function renderNetworks() {
+    el.networks.textContent = '';
+    if (!networks.length) {
+      var empty = document.createElement('li');
+      empty.className = 'empty';
+      empty.textContent = 'No networks found. Try again, or enter the name below.';
+      el.networks.appendChild(empty);
+    }
+    networks.forEach(function (network) {
+      el.networks.appendChild(row(network.ssid, signalIcon(network.rssi) + (network.secure ? lockIcon : ''), function () {
+        select({ssid: network.ssid, secure: network.secure});
+      }));
+    });
+    el.networks.appendChild(row('Other network…', '', function () { select({other: true}); }, true));
+    // Keep the pick across a rescan, if the network is still there.
+    if (selected && (selected.other || networks.some(function (n) { return n.ssid === selected.ssid; }))) {
+      select(selected, false);
+    } else {
+      selected = null;
+      el.connect.disabled = true;
+    }
+  }
+
+  function select(choice, focus) {
+    selected = choice;
+    var buttons = el.networks.querySelectorAll('.network');
+    var index = choice.other ? buttons.length - 1 : networks.findIndex(function (n) { return n.ssid === choice.ssid; });
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].classList.toggle('selected', i === index);
+      buttons[i].setAttribute('aria-selected', i === index ? 'true' : 'false');
+    }
+    el.fieldSsid.hidden = !choice.other;
+    el.fieldPassword.hidden = !choice.other && !choice.secure;
+    el.connect.disabled = false;
+    el.error.hidden = true;
+    if (focus === false) { return; }
+    if (choice.other) { el.ssid.focus(); } else if (choice.secure) { el.password.focus(); }
+  }
+
+  function loadNetworks(fresh) {
+    showWaiting('Looking for networks…', 'Nearby Wi-Fi networks will be listed in a moment.');
+    var started = fresh ? api.rescan() : Promise.resolve();
+    function poll() {
+      return api.scan().then(function (data) {
+        if (data.scanning) { return wait(SCAN_POLL_MS).then(poll); }
+        return data.networks || [];
+      });
+    }
+    return started.then(poll).then(function (list) {
+      networks = list;
+      renderNetworks();
+      showForm();
+    }, function (error) {
+      networks = [];
+      renderNetworks();
+      showForm("Couldn't look for networks: " + error.message + '.');
+    });
+  }
+
+  // ---- connecting ------------------------------------------------------------------------------
+
+  function startConnecting(ssid, password, since) {
+    return api.connect(ssid, password).catch(function (error) {
+      if (error.status === 409 && Date.now() - since < CONNECT_RETRY_MS) {
+        return wait(STATUS_POLL_MS).then(function () { return startConnecting(ssid, password, since); });
+      }
+      throw error;
+    });
+  }
+
+  function pollStatus(since) {
+    return wait(STATUS_POLL_MS).then(api.status).then(function (status) {
+      return status.state === 'connecting' ? pollStatus(Date.now()) : status;
+    }, function (error) {
+      if (Date.now() - since < STATUS_PATIENCE_MS) { return pollStatus(since); }
+      throw new Error("lost contact with the board. Rejoin its network and reload this page");
+    });
+  }
+
+  function connect() {
+    var ssid = selected.other ? el.ssid.value.trim() : selected.ssid;
+    var password = el.fieldPassword.hidden ? '' : el.password.value;
+    if (!ssid) { showForm("Enter the network's name."); el.ssid.focus(); return; }
+    showWaiting('Connecting to ' + ssid + '…', 'This can take up to half a minute.');
+    startConnecting(ssid, password, Date.now()).then(function () {
+      return pollStatus(Date.now());
+    }).then(function (status) {
+      if (status.state === 'connected') {
+        handOff(status.next);
+      } else {
+        showForm("Couldn't join " + ssid + ': ' + (status.reason || 'no reason given') + '.');
+      }
+    }, function (error) {
+      showForm("Couldn't connect: " + error.message + '.');
+    });
+  }
+
+  // The board has joined and is closing its access point. Once it no longer answers and the
+  // broker does, the phone is back online: go there. Needing both keeps Wi-Fi Assist (iOS using
+  // mobile data while the access point has no internet) from sending the phone on too early.
+  function reachable(url) {
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, 1500);
+    return fetch(url, {mode: 'no-cors', cache: 'no-store', signal: controller.signal})
+      .then(function () { clearTimeout(timer); return true; }, function () { clearTimeout(timer); return false; });
+  }
+
+  function handOff(next) {
+    showWaiting('Connected', "The set-up network is closing. You'll be taken to Countdown as soon as your phone is back online.");
+    var started = Date.now(), busy = false;
+    var timer = setInterval(function () {
+      if (busy) { return; }
+      busy = true;
+      Promise.all([reachable('/'), reachable(next)]).then(function (up) {
+        busy = false;
+        if (!up[0] && up[1]) {
+          clearInterval(timer);
+          location.href = next;
+        } else if (Date.now() - started > HANDOFF_GIVE_UP_MS) {
+          clearInterval(timer);
+          stopWaiting("Your phone isn't back online yet. Join your home Wi-Fi, then open Countdown:", next);
+        }
+      });
+    }, 2000);
+  }
+
+  // ---- wiring ----------------------------------------------------------------------------------
+
+  el.showPassword.addEventListener('change', function () {
+    el.password.type = el.showPassword.checked ? 'text' : 'password';
+  });
+  el.rescan.addEventListener('click', function () { loadNetworks(true); });
+  el.connect.addEventListener('click', connect);
+  el.password.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter' && !el.connect.disabled) { connect(); }
+  });
+  el.ssid.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') { el.password.focus(); }
+  });
+
+  loadNetworks(false);
+})();
+</script>
+</body>
+</html>
