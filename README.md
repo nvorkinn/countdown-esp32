@@ -195,11 +195,12 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    the network is open. On an iPhone no pop-up appears (the board answers Apple's connectivity check): join
    the network, open Safari and go to `http://countdown.local/wifi` or any plain-http site such as
    `example.com`, which redirects to the set-up page. If
-   Safari insists on https, browse to `http://192.168.4.1` instead. Pick the network and save: the board
-   joins it, closes the portal, and Safari opens the broker by itself once the phone is back online
-   (if the password was wrong, the page returns to the set-up page after a minute). On Android the
-   set-up page opens in its own sheet, with no redirect afterwards. If nobody sets it up within
-   5 minutes, the board restarts and tries the saved network again.
+   Safari insists on https, browse to `http://192.168.4.1` instead. Pick the network (or "Other network…"
+   for a hidden one), enter its password and tap Connect: the page waits while the board joins (up to half
+   a minute), and says so if it couldn't, with the password still there to correct. Once the board has
+   joined it closes the portal, and the page sends Safari to the broker by itself once the phone is back
+   online. On Android the set-up page opens in its own sheet, with no redirect afterwards. If nobody sets
+   it up within 5 minutes, the board restarts and tries the saved network again.
 2. It makes a device secret (like Python's `secrets.token_urlsafe(24)`), saves it to NVS as
    `device_secret`, and registers with the broker, sending the frame format it draws (`"format": "mono-1bpp-packed"`, the same
    for both panels) and the selected panel's size (`width` and `height`, 800x480 or 1872x1404). It registers again on every boot, with the same secret.
@@ -343,10 +344,14 @@ connector, or Wi-Fi only reaches a few metres.
   `../countdown/epd/src/countdown_epd/epd7in5_V2.py`. It drives the HAT's wires through the `EpdBus`
   interface in `epd_bus.h`. IT8951 uses the bidirectional word-oriented `It8951Bus` instead
 - `src/`: the ESP32 side: `main.cpp`, the ports' implementations (`esp_ports.cpp`), the Wi-Fi set-up
-  portal (`wifi_setup.cpp`) and its set-up screen from the `setup` partition (`setup_partition.cpp`), the
-  HAT's wires over SPI (`esp_epd_bus.cpp`) and the broker's pinned root certificates (`root_certs.h`)
-- `lib/portal/`: `captive_probe.h`, which recognises Apple's connectivity-check hosts, and `setup_screen.h`,
-  which reads the `setup` partition's header (plain C++, tested on the host)
+  portal (`wifi_setup.cpp`: the access point, its DNS and the page's calls) and its set-up screen from the
+  `setup` partition (`setup_partition.cpp`), the HAT's wires over SPI (`esp_epd_bus.cpp`) and the broker's
+  pinned root certificates (`root_certs.h`)
+- `web/`: `wifi.html`, the set-up page, embedded in the firmware (`board_build.embed_txtfiles`). Open it
+  from disk to work on its design: it then talks to a stand-in board inside the page
+- `lib/portal/`: `captive_probe.h`, which recognises Apple's connectivity-check hosts, `portal_api.h`, the
+  set-up page's JSON and the state of an attempt to join a network, and `setup_screen.h`, which reads the
+  `setup` partition's header (plain C++, tested on the host)
 - `partitions.csv`: the flash layout: the core's `huge_app.csv` (a 3 MB app slot), with 384 KB of its SPIFFS
   given to the `setup` partition
 - `provision/`: `provision.py`, which writes a board's set-up screen, and its tests

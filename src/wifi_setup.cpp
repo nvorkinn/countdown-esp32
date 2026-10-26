@@ -1,10 +1,10 @@
 #include "wifi_setup.h"
 
 #include <Arduino.h>
+#include <DNSServer.h>
+#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WiFi.h>
-#include <ESPmDNS.h>
-#include <WiFiManager.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/version.h>
 
@@ -16,10 +16,16 @@
 #include "captive_probe.h"
 #include "device_name.h"
 #include "display_registrar.h"
+#include "portal_api.h"
 #include "setup_partition.h"
 #include "token.h"
 
+// web/wifi.html, put in the firmware by board_build.embed_txtfiles in platformio.ini (NUL-terminated).
+extern const char kPortalPage[] asm("_binary_web_wifi_html_start");
+
 namespace {
+
+using countdown::ConnectAttempt;
 
 constexpr char kSsidKey[] = "WIFI_SSID";
 constexpr char kPasswordKey[] = "WIFI_PASSWORD";
@@ -29,17 +35,13 @@ constexpr unsigned long kConnectTimeoutMs = 30 * 1000;
 // set-up screen. A network that's gone for good (a new router) still gets the portal after this.
 constexpr unsigned long kSavedNetworkPatienceMs = 5 * 60 * 1000;
 constexpr int kPortalTimeoutS = 5 * 60;
-
-// The Countdown logo above the portal's heading, as a CSS background so it needs no extra request
-// (phones' captive-portal browsers can be fussy), and hides the "WiFiManager" heading it replaces. The SVG is URL-encoded inside the data URI.
-// Hides the "No AP set" box on the start page. It's the only <div class="msg"> with no text beyond
-// that, and the board never has a driver-saved network (see WiFi.persistent(false)), so it's always
-// there and reads as an error. The "Saving Credentials" page uses the same class, so leave it alone.
-const char kHideNoApScript[] = R"JS(<script>document.addEventListener('DOMContentLoaded',function(){
-if(location.pathname==='/wifisave')return;
-[].forEach.call(document.querySelectorAll('.msg'),function(m){if(m.className==='msg'&&m.textContent.trim()==='No AP set')m.style.display='none'})})</script>)JS";
-
-const char kLogoStyle[] = R"CSS(<style>.wrap>h1{display:none}.wrap::before{content:'';display:block;height:40px;margin:0 auto 16px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 177 35'%3E%3Crect width='177' height='35' rx='17.5' fill='%23EE2E24'/%3E%3Ctext x='16' y='25' font-family='-apple-system,BlinkMacSystemFont,system-ui,Inter,Helvetica,Arial,sans-serif' font-size='20.8' font-weight='900' letter-spacing='1.04' textLength='145' lengthAdjust='spacing' fill='%23FFF'%3ECOUNTDOWN%3C/text%3E%3C/svg%3E") center/contain no-repeat}</style>)CSS";
+// The page gets the last scan's list; one older than this is scanned again first.
+constexpr unsigned long kScanMaxAgeMs = 60 * 1000;
+// Once the board has joined, the access point stays up until the page has been told and the answer
+// has had this long to reach the phone, or for this long at most if the page never asks.
+constexpr unsigned long kHandoffGraceMs = 1500;
+constexpr unsigned long kHandoffMaxMs = 15 * 1000;
+constexpr uint16_t kDnsPort = 53;
 
 const char* statusName(wl_status_t status) {
   switch (status) {
@@ -100,7 +102,7 @@ std::string sha256Hex(const std::string& input) {
   return result;
 }
 
-// Redirects requests for foreign hosts before WiFiManager's page handlers.
+// Sends requests for foreign hosts (and the access point's IP) to the page's mDNS name.
 void redirectToPortal(WebServer& server, countdown::Log& log) {
   const String url = String("http://") + kDeviceName + ".local/wifi";
   log.info(std::string("Redirecting portal request to ") + url.c_str());
@@ -138,57 +140,17 @@ class PortalHandler : public RequestHandler {
 
 class RedirectToPortal : public PortalHandler {
  public:
-  RedirectToPortal(WiFiManager& manager, countdown::Log& log) : manager_(manager), log_(log) {}
+  RedirectToPortal(WebServer& server, countdown::Log& log) : server_(server), log_(log) {}
 
  protected:
-  bool matches(const String&) override { return !isMdnsHost(manager_.server->hostHeader()); }
+  bool matches(const String&) override { return !isMdnsHost(server_.hostHeader()); }
   bool respond(WebServer& server) override {
     redirectToPortal(server, log_);
     return true;
   }
 
  private:
-  WiFiManager& manager_;
-  countdown::Log& log_;
-};
-
-class RedirectUnknownRequest : public PortalHandler {
- public:
-  explicit RedirectUnknownRequest(countdown::Log& log) : log_(log) {}
-
- protected:
-  bool matches(const String&) override { return true; }
-  bool respond(WebServer& server) override {
-    redirectToPortal(server, log_);
-    return true;
-  }
-
- private:
-  countdown::Log& log_;
-};
-
-// The boards are given away, so the portal only offers Wi-Fi set-up. Hiding the menu entries isn't
-// enough, as the pages stay reachable by URL: Info (/info), firmware update (/u, /update), erase
-// (/erase), restart (/r), and exit/close (/exit, /close).
-class HideMaintenancePages : public PortalHandler {
- public:
-  explicit HideMaintenancePages(countdown::Log& log) : log_(log) {}
-
- protected:
-  bool matches(const String& uri) override {
-    for (const char* page : {"/info", "/u", "/update", "/erase", "/r", "/exit", "/close"}) {
-      if (uri == page) {
-        return true;
-      }
-    }
-    return false;
-  }
-  bool respond(WebServer& server) override {
-    redirectToPortal(server, log_);
-    return true;
-  }
-
- private:
+  WebServer& server_;
   countdown::Log& log_;
 };
 
@@ -196,76 +158,212 @@ class HideMaintenancePages : public PortalHandler {
 // pop-up sheet (which closes when the access point goes away) and the user does set-up in Safari.
 class AppleProbeSuccess : public PortalHandler {
  public:
-  explicit AppleProbeSuccess(WiFiManager& manager) : manager_(manager) {}
+  explicit AppleProbeSuccess(WebServer& server) : server_(server) {}
 
  protected:
-  bool matches(const String&) override {
-    return countdown::isAppleProbeHost(manager_.server->hostHeader().c_str());
-  }
+  bool matches(const String&) override { return countdown::isAppleProbeHost(server_.hostHeader().c_str()); }
   bool respond(WebServer& server) override {
     server.send(200, "text/html", "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>");
     return true;
   }
 
  private:
-  WiFiManager& manager_;
+  WebServer& server_;
 };
 
-// WiFiManager only listens for "scan done" in autoConnect(), which we don't use, so an async scan
-// never lands in its cache and /wifi scans again, in the request. This hands it the result.
-class PortalManager : public WiFiManager {
+// The set-up portal once the access point is up: the DNS server that sends every name to it, the
+// page (web/wifi.html, which documents the calls below) and the calls it makes. loop() runs it;
+// the portal is done when done() says so, with the network in ssid() and password().
+class Portal {
  public:
-  void onScanDone(int networksFound) { WiFi_scanComplete(networksFound); }
-};
+  Portal(countdown::Log& log, std::string pairingUrl)
+      : attempt_(kConnectTimeoutMs), log_(log), pairingUrl_(std::move(pairingUrl)) {}
 
-// Runs on the "Saving" page (/wifisave) only. Once the board's access point is gone and the broker
-// answers, the phone is back online: go there. Needing both keeps Wi-Fi Assist (iOS using mobile data
-// while the access point has no internet) from sending the phone on before the board has joined. If
-// the board still answers after a minute the join failed, so go back to the set-up page.
-String redirectScript(const std::string& url) {
-  String script = "<script>(function(){if(location.pathname!=='/wifisave')return;var u='";
-  script += url.c_str();
-  script += R"JS(',s=Date.now(),b=false;
-function r(x){var c=new AbortController(),t=setTimeout(function(){c.abort()},1500);
-return fetch(x,{mode:'no-cors',cache:'no-store',signal:c.signal}).then(function(){clearTimeout(t);return true},function(){clearTimeout(t);return false})}
-setInterval(function(){if(b)return;b=true;Promise.all([r('/'),r(u)]).then(function(v){b=false;
-if(!v[0]&&v[1])location.href=u;else if(v[0]&&Date.now()-s>60000)location.href='/'})},2000)})()</script>)JS";
-  return script;
-}
+  void begin() {
+    // Asked in this order, before the routes.
+    server_.addHandler(new AppleProbeSuccess(server_));
+    server_.addHandler(new RedirectToPortal(server_, log_));
+    server_.on("/wifi", HTTP_GET, [this] { sendPage(); });
+    server_.on("/scan", HTTP_GET, [this] { sendNetworks(); });
+    server_.on("/scan", HTTP_POST, [this] { rescan(); });
+    server_.on("/connect", HTTP_POST, [this] { connect(); });
+    server_.on("/status", HTTP_GET, [this] { sendStatus(); });
+    // Anything else, including the old WiFiManager pages, goes to the set-up page.
+    server_.onNotFound([this] { redirectToPortal(server_, log_); });
+    server_.begin();
+    dns_.setErrorReplyCode(DNSReplyCode::NoError);
+    dns_.start(kDnsPort, "*", WiFi.softAPIP());
+    startScan();  // so the list is ready by the time the page asks
+  }
+
+  void loop() {
+    dns_.processNextRequest();
+    server_.handleClient();
+    finishScan();
+    const ConnectAttempt::State before = attempt_.state();
+    const ConnectAttempt::State now = attempt_.update(millis(), WiFi.status() == WL_CONNECTED);
+    if (now == before) {
+      return;
+    }
+    if (now == ConnectAttempt::State::Connected) {
+      connectedAt_ = millis();
+      log_.info(std::string("Connected, IP: ") + WiFi.localIP().toString().c_str());
+    } else if (now == ConnectAttempt::State::Failed) {
+      failureReason_ = statusName(WiFi.status());
+      log_.warning("Couldn't connect to " + ssid_ + ": " + failureReason_);
+      WiFi.disconnect();  // or the driver keeps trying, and the next scan and attempt wait on it
+    }
+  }
+
+  bool connected() const { return attempt_.state() == ConnectAttempt::State::Connected; }
+
+  bool done() const {
+    if (!connected()) {
+      return false;
+    }
+    const unsigned long now = millis();
+    return (reported_ && now - reportedAt_ >= kHandoffGraceMs) || now - connectedAt_ >= kHandoffMaxMs;
+  }
+
+  void end() {
+    server_.stop();
+    dns_.stop();
+  }
+
+  const std::string& ssid() const { return ssid_; }
+  const std::string& password() const { return password_; }
+
+ private:
+  void sendJson(int code, const std::string& json) {
+    server_.sendHeader("Cache-Control", "no-store");
+    server_.send(code, "application/json", json.c_str());
+  }
+
+  void sendError(int code, const std::string& message) {
+    sendJson(code, "{\"error\":\"" + countdown::jsonEscape(message) + "\"}");
+  }
+
+  void sendPage() {
+    server_.sendHeader("Cache-Control", "no-store");
+    server_.send(200, "text/html; charset=utf-8", kPortalPage);
+  }
+
+  void startScan() {
+    WiFi.scanDelete();
+    if (WiFi.scanNetworks(true) == WIFI_SCAN_FAILED) {
+      log_.warning("Couldn't start a Wi-Fi scan");
+      return;
+    }
+    scanning_ = true;
+  }
+
+  void finishScan() {
+    if (!scanning_) {
+      return;
+    }
+    const int16_t count = WiFi.scanComplete();
+    if (count == WIFI_SCAN_RUNNING) {
+      return;
+    }
+    networks_.clear();
+    for (int16_t i = 0; i < count; ++i) {
+      networks_.push_back({WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.encryptionType(i) != WIFI_AUTH_OPEN});
+    }
+    WiFi.scanDelete();
+    scanning_ = false;
+    scannedAt_ = millis();
+    scanned_ = true;
+    if (count < 0) {
+      log_.warning("The Wi-Fi scan failed");
+    } else {
+      log_.info("The Wi-Fi scan found " + std::to_string(count) + " networks");
+    }
+  }
+
+  void sendNetworks() {
+    const bool stale = !scanned_ || millis() - scannedAt_ >= kScanMaxAgeMs;
+    if (stale && !scanning_ && attempt_.state() == ConnectAttempt::State::Idle) {
+      startScan();
+    }
+    sendJson(200, std::string("{\"scanning\":") + (scanning_ ? "true" : "false") +
+                      ",\"networks\":" + countdown::networksJson(networks_) + "}");
+  }
+
+  void rescan() {
+    if (attempt_.state() != ConnectAttempt::State::Idle && attempt_.state() != ConnectAttempt::State::Failed) {
+      sendError(409, "Already connecting");
+      return;
+    }
+    if (!scanning_) {
+      startScan();
+    }
+    sendJson(200, "{\"scanning\":true}");
+  }
+
+  void connect() {
+    const std::string ssid = server_.arg("ssid").c_str();
+    const std::string password = server_.arg("password").c_str();
+    const std::string problem = countdown::credentialsProblem(ssid, password);
+    if (!problem.empty()) {
+      sendError(400, problem);
+      return;
+    }
+    if (scanning_) {
+      sendError(409, "Still looking for networks");  // the driver can't join during a scan
+      return;
+    }
+    if (attempt_.state() == ConnectAttempt::State::Connecting) {
+      sendError(409, "Already connecting");
+      return;
+    }
+    if (attempt_.state() == ConnectAttempt::State::Connected) {
+      sendError(409, "Already connected");
+      return;
+    }
+    attempt_.reset();
+    ssid_ = ssid;
+    password_ = password;
+    log_.info("Joining " + ssid + " from the set-up page");
+    WiFi.begin(ssid.c_str(), password.c_str());
+    attempt_.start(millis());
+    sendJson(200, "{\"state\":\"connecting\"}");
+  }
+
+  void sendStatus() {
+    const ConnectAttempt::State state = attempt_.state();
+    std::string json = std::string("{\"state\":\"") + countdown::stateName(state) + "\",\"ssid\":\"" +
+                       countdown::jsonEscape(ssid_) + "\"";
+    if (state == ConnectAttempt::State::Failed) {
+      json += ",\"reason\":\"" + countdown::jsonEscape(failureReason_) + "\"";
+    } else if (state == ConnectAttempt::State::Connected) {
+      json += ",\"next\":\"" + countdown::jsonEscape(pairingUrl_) + "\"";
+      if (!reported_) {
+        reported_ = true;
+        reportedAt_ = millis();
+      }
+    }
+    sendJson(200, json + "}");
+  }
+
+  WebServer server_{80};
+  DNSServer dns_;
+  ConnectAttempt attempt_;
+  countdown::Log& log_;
+  std::string pairingUrl_;
+  std::vector<countdown::ScannedNetwork> networks_;
+  bool scanning_ = false;
+  bool scanned_ = false;
+  unsigned long scannedAt_ = 0;
+  std::string ssid_;
+  std::string password_;
+  std::string failureReason_;
+  unsigned long connectedAt_ = 0;
+  bool reported_ = false;
+  unsigned long reportedAt_ = 0;
+};
 
 void runPortal(countdown::Store& store, countdown::Random& random, countdown::Log& log,
                const std::string& afterSetupUrl, countdown::Display& display) {
-  PortalManager manager;
-  // Must outlive manager: it keeps the pointer.
-  const String head = String(kLogoStyle) + kHideNoApScript;
-  manager.setCustomHeadElement(head.c_str());
-  // Runs before WiFiManager registers its own pages, so this handler is asked first.
-  manager.setWebServerCallback([&manager, &log]() {
-    manager.server->addHandler(new AppleProbeSuccess(manager));
-    manager.server->addHandler(new HideMaintenancePages(log));
-    manager.server->addHandler(new RedirectToPortal(manager, log));
-  });
-  std::vector<const char*> menu = {"wifi"};
-  manager.setMenu(menu);
-  // Verbose, not DEV: DEV logs the Wi-Fi password.
-  manager.setDebugOutput(true, WM_DEBUG_VERBOSE);
-  // Non-blocking, so the loop below can stop the portal as soon as Wi-Fi is up.
-  manager.setConfigPortalBlocking(false);
-  manager.setConfigPortalTimeout(kPortalTimeoutS);
-  // WiFiManager's built-in redirect points to the AP IP; RedirectToPortal sends requests to mDNS.
-  manager.setCaptivePortalEnable(false);
-  // Without a save timeout WiFiManager waits with WiFi.waitForConnectResult() too, so a network
-  // that isn't found on the first try fails the save and the portal shows "No AP set".
-  manager.setSaveConnectTimeout(kConnectTimeoutMs / 1000);
-  // Scan in the background when the portal opens and when the start page is hit, so the list is
-  // cached by the time the user taps "Configure WiFi" (a scan inside that request freezes the page).
-  manager._preloadwifiscan = true;
-  manager._asyncScan = true;
-  // Fresh for the whole time the portal is open, so /wifi never has to scan itself.
-  manager._scancachetime = kPortalTimeoutS * 1000;
-  const wifi_event_id_t scanEvent = WiFi.onEvent(
-      [&manager](arduino_event_id_t, arduino_event_info_t) { manager.onScanDone(WiFi.scanComplete()); },
-      ARDUINO_EVENT_WIFI_SCAN_DONE);
   const String name = portalName();
   // The set-up screen shows the network's password, so the network only gets one once the screen is
   // up: a board that was never provisioned, or whose panel didn't draw it, opens it as before.
@@ -280,9 +378,12 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   log.info(std::string("Opening the Wi-Fi set-up portal: join ") + name.c_str() +
            (password.empty() ? " (open)" : " (password on the set-up screen)") + " and browse to http://" +
            kDeviceName + ".local/wifi (or 192.168.4.1)");
-  manager.startConfigPortal(name.c_str(), password.empty() ? nullptr : password.c_str());
-  // Registered after WiFiManager's routes, so only otherwise-unknown paths reach this handler.
-  manager.server->addHandler(new RedirectUnknownRequest(log));
+  // The station side stays on: it scans for the page, and joins the network it picks.
+  WiFi.mode(WIFI_AP_STA);
+  if (!WiFi.softAP(name.c_str(), password.empty() ? nullptr : password.c_str())) {
+    log.error("Couldn't open the set-up network; restarting");
+    ESP.restart();
+  }
   if (!MDNS.begin(kDeviceName)) {
     log.warning("Couldn't start mDNS; the set-up redirect to " + std::string(kDeviceName) + ".local may not resolve");
   }
@@ -298,24 +399,23 @@ void runPortal(countdown::Store& store, countdown::Random& random, countdown::Lo
   // In the query, not the fragment: a fragment never reaches the broker, so it is lost when the login
   // proxy sends a signed-out user to the sign-in or sign-up and back (the broker accepts either form).
   pairingUrl += "/pair?t=" + countdown::pairingToken(secret, sha256Hex);
-  const String headWithRedirect = head + redirectScript(pairingUrl);
-  manager.setCustomHeadElement(headWithRedirect.c_str());
-  while (!manager.process() && WiFi.status() != WL_CONNECTED) {
-    if (!manager.getConfigPortalActive()) {
+  Portal portal(log, pairingUrl);
+  portal.begin();
+  const unsigned long opened = millis();
+  while (!portal.done()) {
+    if (!portal.connected() && millis() - opened >= kPortalTimeoutS * 1000UL) {
       log.error("Nobody set up Wi-Fi in time; restarting");
       ESP.restart();
     }
+    portal.loop();
     delay(10);
   }
-  if (manager.getConfigPortalActive()) {
-    manager.stopConfigPortal();
-  }
-  WiFi.removeEvent(scanEvent);
+  portal.end();
   MDNS.end();
   WiFi.mode(WIFI_STA);  // the portal's access point off for good
-  store.put(kSsidKey, WiFi.SSID().c_str());
-  store.put(kPasswordKey, manager.getWiFiPass().c_str());
-  log.info(std::string("Saved Wi-Fi credentials for ") + WiFi.SSID().c_str());
+  store.put(kSsidKey, portal.ssid());
+  store.put(kPasswordKey, portal.password());
+  log.info("Saved Wi-Fi credentials for " + portal.ssid());
 }
 
 }  // namespace
@@ -343,5 +443,4 @@ void connectWifi(countdown::Store& store, countdown::Random& random, countdown::
     log.info("No Wi-Fi credentials saved");
   }
   runPortal(store, random, log, afterSetupUrl, display);
-  log.info(std::string("Connected, IP: ") + WiFi.localIP().toString().c_str());
 }
