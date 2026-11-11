@@ -1,5 +1,8 @@
 name: Release
 
+# Shown on the GitHub dashboard among the running releases.
+# dashboard: release
+
 # Releasing is tagging: push a v* tag on a commit of main, or press "Run workflow" (Actions > Release) to have the next
 # tag made on the head of main. Either way the tests run, every panel is built for both servers (prod and dev), and
 # a GitHub release holds the binaries. Boards are flashed by USB, so there is nothing to deploy: promoting a build
