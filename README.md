@@ -74,8 +74,8 @@ server, and **dev**, the dev/QA one. Every panel has a build for each, one Platf
 
 So `pio run -e esp-wrover-kit` builds for production, as it always has, and `pio run -e esp-wrover-kit-dev -t upload`
 flashes a board for dev. The two URLs are set in one place, the `[broker]` section of `platformio.ini`
-(`url_prod`, `url_dev`); the environments differ in nothing else. Production is `https://auth.nikolaivorkinn.com` and
-dev/QA is `https://auth.dev.nikolaivorkinn.com`. A board built for one doesn't pair with the other, so flash the dev
+(`url_prod`, `url_dev`); the environments differ in nothing else. Production is `https://countdown.run` and
+dev/QA is `https://countdown.build`. A board built for one doesn't pair with the other, so flash the dev
 boards with the new dev build after this changes.
 
 Each server must serve a **Let's Encrypt certificate directly.** The firmware pins only the ISRG Root X1 and X2
