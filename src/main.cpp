@@ -29,6 +29,9 @@ static_assert(IT8951_VCOM_MV >= 0 && IT8951_VCOM_MV <= 5000, "VCOM must be a mag
 #ifndef BROKER_URL
 #error "BROKER_URL isn't set: it comes from build_flags in platformio.ini"
 #endif
+#ifndef SITE_URL
+#error "SITE_URL isn't set: it comes from build_flags in platformio.ini"
+#endif
 #if !defined(EPD_PIN_DIN) || !defined(EPD_PIN_CLK) || !defined(EPD_PIN_CS) || !defined(EPD_PIN_DC) || \
     !defined(EPD_PIN_RST) || !defined(EPD_PIN_BUSY) || !defined(EPD_PIN_PWR)
 #error "The e-paper panel's pins (EPD_PIN_*) come from build_flags in platformio.ini"
@@ -64,7 +67,7 @@ void setup() {
   static countdown::It8951 panel(epdBus, log, IT8951_VCOM_MV);
 #endif
   static countdown::EpdDisplay display(panel, log);
-  connectWifi(store, random, log, BROKER_URL, display);
+  connectWifi(store, random, log, SITE_URL, display);
 
   static DelaySleeper sleeper;
   static EspMetrics metrics;

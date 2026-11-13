@@ -33,11 +33,13 @@ pio test -e native            # run the unit tests in test/ on this machine
 pio run -t erase              # wipe the flash: Wi-Fi, the device secret and the set-up screen
 ```
 
-The broker URL is a build flag, `BROKER_URL`, set per [target](#targets-dev-and-prod) from the `[broker]` section of
-`platformio.ini`. To point a build somewhere else (a one-off, for a server of your own):
+The server's two URLs are build flags, set per [target](#targets-dev-and-prod) from the `[broker]` section of
+`platformio.ini`: `BROKER_URL`, the screens' API the board registers with and polls, and `SITE_URL`, the settings site
+the set-up page sends the phone to for pairing. To point a build somewhere else (a one-off, for a server of your own,
+where both are usually the same address):
 
 ```sh
-PLATFORMIO_BUILD_FLAGS='-DBROKER_URL=\"http://192.168.1.10:8000\"' pio run -t upload
+PLATFORMIO_BUILD_FLAGS='-DBROKER_URL=\"http://192.168.1.10:8000\" -DSITE_URL=\"http://192.168.1.10:8000\"' pio run -t upload
 ```
 
 Each build writes `.pio/build/<environment>/firmware.bin` (application only) and
@@ -64,7 +66,8 @@ it does not allocate an expanded framebuffer or rely on firmware-specific fast-r
 
 ### Targets: dev and prod
 
-The firmware talks to one server, compiled in as `BROKER_URL`, and there are two: **prod**, the production
+The firmware talks to one server, compiled in as `BROKER_URL` (its API) and `SITE_URL` (its settings site), and
+there are two: **prod**, the production
 server, and **dev**, the dev/QA one. Every panel has a build for each, one PlatformIO environment apiece:
 
 | Panel | prod | dev |
@@ -73,9 +76,11 @@ server, and **dev**, the dev/QA one. Every panel has a build for each, one Platf
 | 7.8" IT8951 | `esp-wrover-kit-it8951` | `esp-wrover-kit-it8951-dev` |
 
 So `pio run -e esp-wrover-kit` builds for production, as it always has, and `pio run -e esp-wrover-kit-dev -t upload`
-flashes a board for dev. The two URLs are set in one place, the `[broker]` section of `platformio.ini`
-(`url_prod`, `url_dev`); the environments differ in nothing else. Production is `https://auth.countdown.run` and
-dev/QA is `https://auth.countdown.build`. A board built for one doesn't pair with the other, so flash the dev
+flashes a board for dev. The URLs are set in one place, the `[broker]` section of `platformio.ini`
+(`url_prod`, `url_dev` for the API, `site_prod`, `site_dev` for the settings site); the environments differ in nothing
+else. Production is `https://api.countdown.run` and `https://app.countdown.run`, dev/QA is `https://api.countdown.build`
+and `https://app.countdown.build`. Boards flashed before the split still call `auth.<domain>`, which keeps answering the
+API until it is retired. A board built for one doesn't pair with the other, so flash the dev
 boards with the new dev build after this changes.
 
 Each server must serve a **Let's Encrypt certificate directly.** The firmware pins only the ISRG Root X1 and X2
