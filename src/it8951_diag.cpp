@@ -12,9 +12,9 @@
 namespace {
 constexpr uint32_t kReadyTimeoutMs = 3000;
 constexpr size_t kInfoWords = 20;
-// A second GPIO to try the HAT's MISO wire on. Unlike 34 it has pull resistors, so the diagnostics can tell a line the
-// HAT drives from one that's connected to nothing. It's the 7.5" HAT's DC pin, free with this HAT.
-constexpr int kAltMisoPin = 33;
+// A second GPIO to try the HAT's MISO wire on, when the configured one reads nothing. It has no pull resistors, so it
+// is only read as it is.
+constexpr int kAltMisoPin = 34;
 
 SPIClass spi(HSPI);
 uint32_t clockHz = 4000000;
@@ -174,7 +174,8 @@ void readInfo(uint32_t hz, const char* pull) {
 }
 
 // Reads the device info with MISO on `pin`. On a pin with pull resistors it reads again pulled each way: a reply that
-// follows the pull (all FFFF, then all 0000) means nothing is driving the line.
+// follows the pull (all FFFF, then all 0000) means nothing is driving the line, and all 0000 both ways that the
+// controller is sending zeros. A good reply starts 0750 057C (1872x1404).
 void tryMiso(int pin) {
   Serial.printf("\n##### MISO on GPIO %d #####\n", pin);
   spi.end();

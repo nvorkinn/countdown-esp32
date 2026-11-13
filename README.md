@@ -306,7 +306,7 @@ not a bare panel without its controller. Connect everything with power off and s
 | 5V | Regulated 5 V supply | HAT power; **not the ESP32's 3V3 output** |
 | GND | GND (shared with supply) | Common ground |
 | MOSI | GPIO 14 | Data to controller |
-| MISO | GPIO 34 | Data from controller (required) |
+| MISO | GPIO 33 | Data from controller (required) |
 | SCK | GPIO 13 | SPI clock |
 | CS | GPIO 15 | Chip select |
 | RST | GPIO 26 | Reset |
@@ -326,7 +326,10 @@ For a one-off build:
 PLATFORMIO_BUILD_FLAGS='-DIT8951_VCOM_MV=2310' pio run -e esp-wrover-kit-it8951
 ```
 
-The driver checks that the HAT reports 1872x1404 before loading an image. HRDY and refresh-status waits
+The driver checks that the HAT reports 1872x1404 before loading an image. If it logs `IT8951 reports 0x0`, nothing
+is arriving on MISO: `pio run -e esp-wrover-kit-it8951-diag -t upload -t monitor` flashes a utility firmware that
+prints what HRDY does and what is read back on MISO, without drawing anything (flash the countdown firmware again
+afterwards). HRDY and refresh-status waits
 are bounded; a failure closes SPI and resets the controller so the next poll can try again.
 
 ### ESP32 antenna
