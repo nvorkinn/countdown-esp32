@@ -196,7 +196,7 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    the network, open Safari and go to `http://countdown.local/wifi` or any plain-http site such as
    `example.com`, which redirects to the set-up page. If
    Safari insists on https, browse to `http://192.168.4.1` instead. Pick the network (or "Other network…"
-   for a hidden one), enter its password and tap Connect: the page waits while the board joins (up to half
+   for a hidden one); on the screen that opens, enter its password and tap Connect: the page waits while the board joins (up to half
    a minute), and says so if it couldn't, with the password still there to correct. Once the board has
    joined it closes the portal, and the page sends Safari to the broker by itself once the phone is back
    online. On Android the set-up page opens in its own sheet, with no redirect afterwards. If nobody sets
