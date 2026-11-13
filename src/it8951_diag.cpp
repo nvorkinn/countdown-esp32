@@ -3,6 +3,7 @@
 // drawn. It replaces the countdown firmware on the board, so flash the countdown firmware again afterwards.
 #include <Arduino.h>
 #include <SPI.h>
+#include <driver/gpio.h>
 
 #if !defined(EPD_PANEL_IT8951) || !defined(EPD_PIN_MISO)
 #error "The diagnostics are for the IT8951 HAT: build them with the panel_it8951 flags"
@@ -11,6 +12,9 @@
 namespace {
 constexpr uint32_t kReadyTimeoutMs = 3000;
 constexpr size_t kInfoWords = 20;
+// A second GPIO to try the HAT's MISO wire on. Unlike 34 it has pull resistors, so the diagnostics can tell a line the
+// HAT drives from one that's connected to nothing. It's the 7.5" HAT's DC pin, free with this HAT.
+constexpr int kAltMisoPin = 33;
 
 SPIClass spi(HSPI);
 uint32_t clockHz = 4000000;
@@ -140,11 +144,11 @@ void printText(const uint16_t* words, size_t count) {
   }
 }
 
-void readInfo(uint32_t hz) {
+void readInfo(uint32_t hz, const char* pull) {
   clockHz = hz;
   busyDips = 0;
   uint16_t info[kInfoWords] = {};
-  Serial.printf("--- Device info at %u Hz ---\n", hz);
+  Serial.printf("--- Device info at %u Hz, MISO %s ---\n", hz, pull);
   if (!command(0x0001)) {
     Serial.println("SYS_RUN: HRDY timed out");
     return;
@@ -168,6 +172,25 @@ void readInfo(uint32_t hz) {
   printText(info + 12, 8);
   Serial.println("\"");
 }
+
+// Reads the device info with MISO on `pin`. On a pin with pull resistors it reads again pulled each way: a reply that
+// follows the pull (all FFFF, then all 0000) means nothing is driving the line.
+void tryMiso(int pin) {
+  Serial.printf("\n##### MISO on GPIO %d #####\n", pin);
+  spi.end();
+  spi.begin(EPD_PIN_CLK, pin, EPD_PIN_DIN, -1);
+  // The IDF call, not pinMode: pinMode would take the pin away from SPI.
+  gpio_set_pull_mode(static_cast<gpio_num_t>(pin), GPIO_FLOATING);
+  readInfo(4000000, "no pull");
+  readInfo(250000, "no pull");
+  if (pin < 34) {  // GPIO 34-39 have no pull resistors
+    gpio_set_pull_mode(static_cast<gpio_num_t>(pin), GPIO_PULLUP_ONLY);
+    readInfo(250000, "pulled up");
+    gpio_set_pull_mode(static_cast<gpio_num_t>(pin), GPIO_PULLDOWN_ONLY);
+    readInfo(250000, "pulled down");
+    gpio_set_pull_mode(static_cast<gpio_num_t>(pin), GPIO_FLOATING);
+  }
+}
 }  // namespace
 
 void setup() {
@@ -183,9 +206,8 @@ void loop() {
   Serial.printf("\n===== IT8951 diagnostics: MOSI=%d MISO=%d SCK=%d CS=%d RST=%d HRDY=%d =====\n", EPD_PIN_DIN,
                 EPD_PIN_MISO, EPD_PIN_CLK, EPD_PIN_CS, EPD_PIN_RST, EPD_PIN_BUSY);
   reset();
-  // 4 MHz first: straight after the reset, it's what the countdown firmware does.
-  for (const uint32_t hz : {4000000u, 1000000u, 250000u}) {
-    readInfo(hz);
-  }
+  // The configured pin first, at 4 MHz: straight after the reset, it's what the countdown firmware does.
+  tryMiso(EPD_PIN_MISO);
+  tryMiso(kAltMisoPin);
   delay(10000);
 }
