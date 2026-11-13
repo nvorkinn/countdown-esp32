@@ -10,7 +10,7 @@
      screen in its black bezel, on a plain wall that is light by day and dark at night (the phone's light or
      dark mode). The fonts and the walls are the files next to this one, copies of the sign-in's: keep them
      identical. The script at the bottom only needs the elements with ids and the classes it toggles:
-     panel.waiting, panel.stopped, network.selected. Open this file from disk to work on it: the script then
+     panel.waiting and panel.stopped, and body.joining. Open this file from disk to work on it: the script then
      talks to a stand-in board instead of the real one (see mockApi below), and the files load from the folder. */
   @font-face { font-family: "Countdown Ubuntu"; font-weight: 400; font-display: swap; src: url("Ubuntu-Regular.woff2") format("woff2"); }
   @font-face { font-family: "Countdown Ubuntu"; font-weight: 500; font-display: swap; src: url("Ubuntu-Medium.woff2") format("woff2"); }
@@ -44,6 +44,10 @@
     justify-content: center;
     padding: 16px;
     -webkit-text-size-adjust: 100%;
+  }
+  /* On a phone the password step sits at the top of the wall, not its middle, where the keyboard would cover it. */
+  @media (max-width: 600px) {
+    body.joining { align-items: flex-start; }
   }
   @media (prefers-color-scheme: dark) {
     :root { --cd-wall-ink: #a3a6aa; }
@@ -97,6 +101,7 @@
     font: 500 34px / 1.1 var(--cd-font);
     margin: 14px 0 8px;
     text-align: left;
+    overflow-wrap: anywhere;  /* a network's name can be 32 characters with no space */
   }
   @media (max-width: 600px) {
     .title { font-size: 28px; }
@@ -190,7 +195,7 @@
     .loader-pill::before, .loader-pill::after { content: none; }
   }
 
-  /* ---- The form ---- */
+  /* ---- The two steps: the list of networks (view-form), then the chosen one's password (view-join) ---- */
   .view-form {
     display: flex;
     flex-direction: column;
@@ -222,8 +227,7 @@
     flex: 0 1 auto;
     min-height: 0;
   }
-  /* A network is a row on the screen, lined up with the label, with a hairline under it; the chosen one
-     gets a thicker line, as a field does when it has focus, and its name in medium. */
+  /* A network is a row on the screen, lined up with the label, with a hairline under it. */
   .network {
     display: flex;
     align-items: center;
@@ -239,8 +243,6 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  .network.selected { box-shadow: inset 0 -1px 0 var(--cd-ink); }
-  .network.selected .name { font-weight: 500; }
   .network .name {
     flex: 1 1 auto;
     min-width: 0;
@@ -335,16 +337,22 @@
     <span class="caption">Wi-Fi set-up</span>
   </header>
   <h1 class="title" id="title">Connect to Wi-Fi</h1>
-  <p class="note" id="subtitle" role="status">Pick your home network and enter its password.</p>
+  <p class="note" id="subtitle" role="status">Pick your home network.</p>
+  <div class="error" id="error" role="alert" hidden></div>
 
-  <section class="view-form" id="view-form" hidden>
-    <div class="error" id="error" role="alert" hidden></div>
-
+  <section class="view-form" id="view-list" hidden>
     <div class="field field-networks">
       <span class="label" id="networks-label">Network</span>
-      <ul class="networks" id="networks" role="listbox" aria-labelledby="networks-label"></ul>
+      <ul class="networks" id="networks" aria-labelledby="networks-label"></ul>
     </div>
 
+    <div class="actions">
+      <button type="button" class="btn" id="rescan">Rescan</button>
+    </div>
+  </section>
+
+  <!-- Its own step, so the password is near the top of the screen, above the phone's keyboard. -->
+  <section class="view-join" id="view-join" hidden>
     <div class="field" id="field-ssid" hidden>
       <label for="ssid">Network name</label>
       <input type="text" id="ssid" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="32">
@@ -357,8 +365,8 @@
     </div>
 
     <div class="actions">
-      <button type="button" class="btn" id="rescan">Rescan</button>
-      <button type="button" class="btn btn-primary" id="connect" disabled>Connect</button>
+      <button type="button" class="btn" id="back">Back</button>
+      <button type="button" class="btn btn-primary" id="connect">Connect</button>
     </div>
   </section>
 
@@ -389,15 +397,15 @@
   var $ = function (id) { return document.getElementById(id); };
   var el = {
     panel: $('panel'), title: $('title'), subtitle: $('subtitle'),
-    form: $('view-form'), error: $('error'), networks: $('networks'),
-    fieldSsid: $('field-ssid'), ssid: $('ssid'),
+    error: $('error'), list: $('view-list'), networks: $('networks'), rescan: $('rescan'),
+    join: $('view-join'), fieldSsid: $('field-ssid'), ssid: $('ssid'),
     fieldPassword: $('field-password'), password: $('password'), showPassword: $('show-password'),
-    rescan: $('rescan'), connect: $('connect'),
+    back: $('back'), connect: $('connect'),
     wait: $('view-wait'), waitLink: $('wait-link')
   };
 
   var networks = [];
-  var selected = null;  // {ssid, secure}, or {other: true} for a name typed in
+  var selected = null;  // the network being joined: {ssid, secure}, or {other: true} for a name typed in
 
   // ---- talking to the board --------------------------------------------------------------------
 
@@ -453,7 +461,7 @@
 
   function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
 
-  // ---- the two views ---------------------------------------------------------------------------
+  // ---- the three views: waiting, the list of networks, joining one of them -----------------------
 
   function showWaiting(title, note) {
     el.panel.classList.add('waiting');
@@ -461,7 +469,10 @@
     el.title.textContent = title;
     el.subtitle.textContent = note || '';
     el.waitLink.hidden = true;
-    el.form.hidden = true;
+    document.body.classList.remove('joining');
+    el.error.hidden = true;
+    el.list.hidden = true;
+    el.join.hidden = true;
     el.wait.hidden = false;
   }
   function stopWaiting(note, link) {
@@ -469,14 +480,30 @@
     el.subtitle.textContent = note;
     if (link) { el.waitLink.href = link; el.waitLink.hidden = false; }
   }
-  function showForm(error) {
+  function showStep(step, title, note, error) {
     el.panel.classList.remove('waiting', 'stopped');
-    el.title.textContent = 'Connect to Wi-Fi';
-    el.subtitle.textContent = 'Pick your home network and enter its password.';
+    el.title.textContent = title;
+    el.subtitle.textContent = note;
     el.error.textContent = error || '';
     el.error.hidden = !error;
     el.wait.hidden = true;
-    el.form.hidden = false;
+    document.body.classList.toggle('joining', step === el.join);
+    el.list.hidden = step !== el.list;
+    el.join.hidden = step !== el.join;
+  }
+  function showList(error) {
+    showStep(el.list, 'Connect to Wi-Fi', 'Pick your home network.', error);
+  }
+  // The chosen network's own step: its name as the title, and the password straight under it.
+  function showJoin(error) {
+    var needsPassword = selected.other || selected.secure;
+    el.fieldSsid.hidden = !selected.other;
+    el.fieldPassword.hidden = !needsPassword;
+    showStep(el.join, selected.other ? 'Other network' : selected.ssid,
+      selected.other ? "Enter the network's name and password." :
+      selected.secure ? "Enter this network's password." : 'This network has no password.', error);
+    window.scrollTo(0, 0);
+    if (selected.other && !el.ssid.value.trim()) { el.ssid.focus(); } else if (needsPassword) { el.password.focus(); }
   }
 
   // ---- the network list ------------------------------------------------------------------------
@@ -497,7 +524,6 @@
     var button = document.createElement('button');
     button.type = 'button';
     button.className = 'network';
-    button.setAttribute('role', 'option');
     var label = document.createElement('span');
     label.className = 'name' + (isOther ? ' other' : '');
     label.textContent = name;
@@ -513,38 +539,23 @@
     if (!networks.length) {
       var empty = document.createElement('li');
       empty.className = 'empty';
-      empty.textContent = 'No networks found. Try again, or enter the name below.';
+      empty.textContent = 'No networks found. Rescan, or enter the name yourself:';
       el.networks.appendChild(empty);
     }
     networks.forEach(function (network) {
       el.networks.appendChild(row(network.ssid, signalIcon(network.rssi) + (network.secure ? lockIcon : ''), function () {
-        select({ssid: network.ssid, secure: network.secure});
+        pick({ssid: network.ssid, secure: network.secure});
       }));
     });
-    el.networks.appendChild(row('Other network…', '', function () { select({other: true}); }, true));
-    // Keep the pick across a rescan, if the network is still there.
-    if (selected && (selected.other || networks.some(function (n) { return n.ssid === selected.ssid; }))) {
-      select(selected, false);
-    } else {
-      selected = null;
-      el.connect.disabled = true;
-    }
+    el.networks.appendChild(row('Other network…', '', function () { pick({other: true}); }, true));
   }
 
-  function select(choice, focus) {
+  // Called from the tap itself, so that focusing the password brings up the phone's keyboard.
+  function pick(choice) {
+    // A password typed for one network isn't offered to another; going back to the same one keeps it.
+    if (!selected || selected.other !== choice.other || selected.ssid !== choice.ssid) { el.password.value = ''; }
     selected = choice;
-    var buttons = el.networks.querySelectorAll('.network');
-    var index = choice.other ? buttons.length - 1 : networks.findIndex(function (n) { return n.ssid === choice.ssid; });
-    for (var i = 0; i < buttons.length; i++) {
-      buttons[i].classList.toggle('selected', i === index);
-      buttons[i].setAttribute('aria-selected', i === index ? 'true' : 'false');
-    }
-    el.fieldSsid.hidden = !choice.other;
-    el.fieldPassword.hidden = !choice.other && !choice.secure;
-    el.connect.disabled = false;
-    el.error.hidden = true;
-    if (focus === false) { return; }
-    if (choice.other) { el.ssid.focus(); } else if (choice.secure) { el.password.focus(); }
+    showJoin();
   }
 
   function loadNetworks(fresh) {
@@ -559,11 +570,11 @@
     return started.then(poll).then(function (list) {
       networks = list;
       renderNetworks();
-      showForm();
+      showList();
     }, function (error) {
       networks = [];
       renderNetworks();
-      showForm("Couldn't look for networks: " + error.message + '.');
+      showList("Couldn't look for networks: " + error.message + '.');
     });
   }
 
@@ -590,7 +601,7 @@
   function connect() {
     var ssid = selected.other ? el.ssid.value.trim() : selected.ssid;
     var password = el.fieldPassword.hidden ? '' : el.password.value;
-    if (!ssid) { showForm("Enter the network's name."); el.ssid.focus(); return; }
+    if (!ssid) { showJoin("Enter the network's name."); return; }
     showWaiting('Connecting to ' + ssid + '…', 'This can take up to half a minute.');
     startConnecting(ssid, password, Date.now()).then(function () {
       return pollStatus(Date.now());
@@ -598,10 +609,10 @@
       if (status.state === 'connected') {
         handOff(status.next);
       } else {
-        showForm("Couldn't join " + ssid + ': ' + (status.reason || 'no reason given') + '.');
+        showJoin("Couldn't join " + ssid + ': ' + (status.reason || 'no reason given') + '.');
       }
     }, function (error) {
-      showForm("Couldn't connect: " + error.message + '.');
+      showJoin("Couldn't connect: " + error.message + '.');
     });
   }
 
@@ -640,10 +651,12 @@
     el.password.type = el.showPassword.checked ? 'text' : 'password';
   });
   el.rescan.addEventListener('click', function () { loadNetworks(true); });
+  el.back.addEventListener('click', function () { showList(); });
   el.connect.addEventListener('click', connect);
   el.password.addEventListener('keydown', function (event) {
-    if (event.key === 'Enter' && !el.connect.disabled) { connect(); }
+    if (event.key === 'Enter') { connect(); }
   });
+  el.ssid.addEventListener('input', function () { el.error.hidden = true; });  // "Enter the network's name."
   el.ssid.addEventListener('keydown', function (event) {
     if (event.key === 'Enter') { el.password.focus(); }
   });
