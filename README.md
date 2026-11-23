@@ -1,13 +1,20 @@
-# countdown-esp
+# countdown-esp32
 
 ESP32 firmware for the countdown, built with [PlatformIO](https://platformio.org/) on the Arduino framework.
 
 It is a countdown display: the ESP32 port of `countdown-client` (`../countdown/client`). It registers
-with [auth-broker](https://github.com/nvorkinn/auth-broker) as a `display`, then polls `/api/frame` for
+with [countdown-server](https://github.com/nvorkinn/countdown-server) as an e-paper screen, then polls `/api/frame` for
 frames that a renderer has drawn and puts them on the selected Waveshare e-paper panel.
 Each poll also carries the board's logs and metrics to the broker.
 
 ## Setup
+
+The store contract ([countdown-api](https://github.com/nvorkinn/countdown-api)) is a git submodule, `vendor/countdown-api`,
+whose generated C++ headers the firmware builds with. Clone with `--recurse-submodules`, or in an existing checkout:
+
+```sh
+git submodule update --init
+```
 
 PlatformIO is installed from pip:
 
@@ -17,11 +24,11 @@ source .venv/bin/activate
 pip install platformio
 ```
 
-Open `countdown-esp` as the folder in VS Code and accept the recommended PlatformIO IDE extension (listed in `.vscode/extensions.json`).
+Open `countdown-esp32` as the folder in VS Code and accept the recommended PlatformIO IDE extension (listed in `.vscode/extensions.json`).
 
 ## Common commands
 
-Run these from this directory (`countdown-esp`):
+Run these from this directory (`countdown-esp32`):
 
 ```sh
 pio run -e esp-wrover-kit     # build the firmware
@@ -238,11 +245,16 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
 
 ## What each poll sends
 
+The body is the store contract's `FrameReport`
+([countdown-api](https://github.com/nvorkinn/countdown-api), the `vendor/countdown-api` submodule), and the
+registration its `DeviceRegistration`. `lib/broker_client` builds both requests with the contract's generated C++
+headers (`countdown_api/api.h`: `registerDevice` and `pollFrame`), so the paths and the JSON are the contract's, and
+sends them through its own `Http` port.
+
 ```json
 {
-  "role": "display",
   "metrics": "esp32,device_id={device_id} uptime_s=3600i,free_heap=182344i,min_free_heap=150212i,free_psram=4100000i,wifi_rssi=-61i,reset_reason=1i,logs_dropped=0i",
-  "logs": [{"service": "countdown-esp32", "host": "countdown", "level": "info", "_msg": "Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\" seconds", "uptime_ms": 3599012}]
+  "logs": [{"level": "info", "_msg": "Frame response: HTTP 200 (48000 bytes), Retry-After: \"30\" seconds", "uptime_ms": 3599012}]
 }
 ```
 
@@ -252,11 +264,10 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
   in with the device it authenticated the poll as. The fields are `uptime_s`, `free_heap`, `min_free_heap`,
   `free_psram`, `wifi_rssi`, `reset_reason` and `logs_dropped`.
 - **`logs`:** every line logged since the broker last answered, oldest first, from Wi-Fi set-up on.
-  They're stamped with milliseconds since boot, since the board has no wall clock. Each line uses the
-  standard log fields shared by everything shipped to VictoriaLogs: `service` (`countdown-esp32`), `host`
-  (`kDeviceName` in `src/device_name.h`, the same on every board), `level` (`info`, `warn` or `error`) and
-  `_msg`, plus `uptime_ms`. The broker replaces `service` and `host`, setting `host` and a `device_id` field to
-  the device it authenticated the poll as, which is how boards are told apart, dates each line from its
+  They're stamped with milliseconds since boot, since the board has no wall clock. Each line has its
+  `level` (`info`, `warn` or `error`) and `_msg`, plus `uptime_ms`. The broker adds the rest of the standard log
+  fields shared by everything shipped to VictoriaLogs: `service` (`countdown-esp32`), and `host` and `device_id`,
+  both the device it authenticated the poll as, which is how boards are told apart. It dates each line from its
   `uptime_ms`, and sends them to VictoriaLogs (`/insert/jsonline`, with `_stream_fields=service,host`).
   An answer of 200, 202, 304 or 404 clears them. When there's no answer, a 401, or anything
   else, they're kept for the next poll.

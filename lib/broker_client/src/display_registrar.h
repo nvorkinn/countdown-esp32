@@ -1,7 +1,7 @@
 #pragma once
 
-// Registering with auth-broker (https://github.com/nvorkinn/auth-broker) as a display: the port of
-// countdown_credentials.registration's Registrar and DisplayRegistrar. The device's identity is a
+// Registering with countdown-server (https://github.com/nvorkinn/countdown-server) as an e-paper screen: the port
+// of countdown_credentials.registration's Registrar and DisplayRegistrar. The device's identity is a
 // secret kept in the Store, which is also sent as the bearer token on every request.
 
 #include <string>

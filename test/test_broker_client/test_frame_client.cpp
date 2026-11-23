@@ -19,7 +19,7 @@ struct Client {
   DisplayRegistrar registrar;
   FrameClient client;
 
-  Client() : registrar(withSecret(board)), client(registrar, board.http, board.display, board.sleeper, board.clock, board.logs, board.metrics, "countdown-esp32", "my-device") {}
+  Client() : registrar(withSecret(board)), client(registrar, board.http, board.display, board.sleeper, board.clock, board.logs, board.metrics) {}
 
   static DisplayRegistrar withSecret(Board& board) {
     board.store.values[kDeviceSecretKey] = "shh";
@@ -50,9 +50,8 @@ void test_the_first_tick_registers_then_polls_the_frame() {
   TEST_ASSERT_EQUAL_STD_STRING("POST", poll.method);
   TEST_ASSERT_EQUAL_STD_STRING(kFrameUrl, poll.url);
   TEST_ASSERT_EQUAL_STD_STRING(
-      R"({"role":"display","metrics":"esp32,device_id={device_id} logs_dropped=0i",)"
-      R"("logs":[{"service":"countdown-esp32","host":"my-device","level":"info",)"
-      R"("_msg":"Registered with the broker","uptime_ms":0}]})",
+      R"({"metrics":"esp32,device_id={device_id} logs_dropped=0i",)"
+      R"("logs":[{"level":"info","_msg":"Registered with the broker","uptime_ms":0}]})",
       poll.body);
   TEST_ASSERT_EQUAL_STD_STRING("shh", poll.bearer);
 }
@@ -242,7 +241,7 @@ void test_401_registers_again_with_the_same_secret_on_the_next_tick() {
 
   TEST_ASSERT_EQUAL(2, c.count(kRegisterUrl));
   TEST_ASSERT_EQUAL_STD_STRING(kRegisterUrl, c.board.http.requests[2].url);
-  TEST_ASSERT_EQUAL_STD_STRING(R"({"format":"mono-1bpp-packed","secret":"shh","width":800,"height":480})", c.board.http.requests[2].body);
+  TEST_ASSERT_EQUAL_STD_STRING(R"({"secret":"shh","width":800,"height":480,"format":"mono-1bpp-packed"})", c.board.http.requests[2].body);
   TEST_ASSERT_EQUAL_STD_STRING(kFrameUrl, c.board.http.requests[3].url);
   TEST_ASSERT_EQUAL_STD_STRING("shh", c.board.http.requests[3].bearer);
 }
@@ -286,7 +285,7 @@ void test_polls_carry_the_new_secret_after_a_409() {
   Board board;
   board.store.values[kDeviceSecretKey] = "a renderer's";
   DisplayRegistrar registrar = board.registrar();
-  FrameClient client(registrar, board.http, board.display, board.sleeper, board.clock, board.logs, board.metrics, "countdown-esp32", "my-device");
+  FrameClient client(registrar, board.http, board.display, board.sleeper, board.clock, board.logs, board.metrics);
   board.http.reply(409);
   board.http.reply(201);
   board.http.reply(202);
@@ -320,7 +319,7 @@ void test_polls_carry_the_logs_with_their_uptime_level_and_escaped_message() {
 
   TEST_ASSERT_NOT_EQUAL(
       std::string::npos,
-      c.lastBody().find(R"({"service":"countdown-esp32","host":"my-device","level":"warn","_msg":"say \"hi\"\nback\\slash","uptime_ms":1234})"));
+      c.lastBody().find(R"({"level":"warn","_msg":"say \"hi\"\nback\\slash","uptime_ms":1234})"));
 }
 
 void test_logs_the_broker_answered_are_not_sent_again() {

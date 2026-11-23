@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "countdown_api/api.h"
 #include "json.h"
 #include "line_protocol.h"
 #include "retry.h"
@@ -14,14 +15,14 @@ namespace countdown {
 
 namespace {
 
-const char* levelName(LogLevel level) {
+countdown_api::FrameLogEntry::LevelEnum levelOf(LogLevel level) {
   switch (level) {
     case LogLevel::Error:
-      return "error";
+      return countdown_api::FrameLogEntry::LevelEnum::Error;
     case LogLevel::Warning:
-      return "warn";
+      return countdown_api::FrameLogEntry::LevelEnum::Warn;
     default:
-      return "info";
+      return countdown_api::FrameLogEntry::LevelEnum::Info;
   }
 }
 
@@ -33,46 +34,48 @@ constexpr char kMetricsSeriesKey[] = "esp32,device_id={device_id}";
 // doesn't poll again straight away.
 constexpr uint64_t kMinPollWaitMs = 1000;
 
-// {"role":"display","metrics":"<line protocol>","logs":[{"service":...,"host":...,"level":...,"_msg":...,"uptime_ms":...},...]}
-std::string pollBody(const std::vector<Metric>& metrics, const std::deque<LogEntry>& logs, const std::string& service,
-                     const std::string& host) {
-  std::string body = R"({"role":"display","metrics":)" + jsonString(influxLine(kMetricsSeriesKey, metrics));
-  body += R"(,"logs":[)";
-  for (size_t i = 0; i < logs.size(); ++i) {
-    body += (i ? "," : "");
-    body += R"({"service":)" + jsonString(service) + R"(,"host":)" + jsonString(host) + R"(,"level":")" +
-            levelName(logs[i].level) + R"(","_msg":)" + jsonString(logs[i].message) + R"(,"uptime_ms":)" +
-            std::to_string(logs[i].uptimeMs) + "}";
+// The contract's FrameReport (countdown-api): {"metrics":"<line protocol>","logs":[{"level":...,"_msg":...,
+// "uptime_ms":...},...]}. The broker says which service and device each line is from itself.
+countdown_api::FrameReport report(const std::vector<Metric>& metrics, const std::deque<LogEntry>& logs) {
+  countdown_api::FrameReport report;
+  report.metrics = influxLine(kMetricsSeriesKey, metrics);
+  report.logs.emplace();
+  report.logs->reserve(logs.size());
+  for (const LogEntry& entry : logs) {
+    countdown_api::FrameLogEntry line;
+    line.level = levelOf(entry.level);
+    line._msg = entry.message;
+    line.uptime_ms = static_cast<int64_t>(entry.uptimeMs);
+    report.logs->push_back(std::move(line));
   }
-  body += "]}";
-  return body;
+  return report;
 }
 
 }  // namespace
 
 FrameClient::FrameClient(DisplayRegistrar& registrar, Http& http, Display& display, Sleeper& sleeper,
-                         Clock& clock, LogBuffer& log, Metrics& metrics, std::string service, std::string host)
+                         Clock& clock, LogBuffer& log, Metrics& metrics)
     : registrar_(registrar),
       http_(http),
       display_(display),
       sleeper_(sleeper),
       clock_(clock),
       log_(log),
-      metrics_(metrics),
-      service_(std::move(service)),
-      host_(std::move(host)) {}
+      metrics_(metrics) {}
 
 void FrameClient::tick() {
   if (!registered_) {
     registrar_.registerDevice();
     registered_ = true;
   }
-  const std::string url = registrar_.brokerUrl() + "/api/frame";
   std::vector<Metric> metrics = metrics_.read();
   metrics.push_back({"logs_dropped", static_cast<int64_t>(log_.dropped())});
   const std::deque<LogEntry>& logs = log_.entries();
   const uint64_t sentThrough = logs.empty() ? 0 : logs.back().seq;
-  const HttpResponse response = http_.request("POST", url, pollBody(metrics, logs, service_, host_), registrar_.secret(), etag_);
+  // The contract's pollFrame.
+  const countdown_api::Request request = countdown_api::pollFrame(report(metrics, logs));
+  const std::string url = registrar_.brokerUrl() + request.path;
+  const HttpResponse response = http_.request(request.method, url, request.body, registrar_.secret(), etag_);
   // The broker's Retry-After counts from here, not from after the frame is drawn.
   const uint64_t answeredAtMs = clock_.uptimeMs();
   if (!response.sent) {

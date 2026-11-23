@@ -13,7 +13,7 @@ using namespace countdown::testing;
 namespace {
 
 std::string registerBody(const std::string& secret) {
-  return R"({"format":"mono-1bpp-packed","secret":")" + secret + R"(","width":800,"height":480})";
+  return R"({"secret":")" + secret + R"(","width":800,"height":480,"format":"mono-1bpp-packed"})";
 }
 
 void test_a_new_device_saves_its_secret_before_sending_it() {
@@ -48,7 +48,7 @@ void test_registration_uses_the_selected_panel_dimensions() {
   DisplayRegistrar registrar(kBrokerUrl, board.store, board.http, board.random, board.sleeper, board.log, 1872, 1404);
   registrar.registerDevice();
   TEST_ASSERT_EQUAL_STD_STRING(
-      std::string(R"({"format":"mono-1bpp-packed","secret":")") + kFirstToken + R"(","width":1872,"height":1404})",
+      std::string(R"({"secret":")") + kFirstToken + R"(","width":1872,"height":1404,"format":"mono-1bpp-packed"})",
       board.http.requests[0].body);
 }
 
