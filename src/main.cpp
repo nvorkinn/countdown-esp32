@@ -45,7 +45,7 @@ countdown::FrameClient* client = nullptr;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("countdown-esp started");
+  Serial.println("countdown-esp32 started");
   if (psramFound()) {
     heap_caps_malloc_extmem_enable(16 * 1024);
   }
@@ -74,7 +74,7 @@ void setup() {
   static EspHttp http(kBrokerRootCerts, panel.frameBytes());
   static countdown::DisplayRegistrar registrar(BROKER_URL, store, http, random, sleeper, log,
                                                panel.width(), panel.height());
-  static countdown::FrameClient frameClient(registrar, http, display, sleeper, clock, log, metrics, kLogService, kDeviceName);
+  static countdown::FrameClient frameClient(registrar, http, display, sleeper, clock, log, metrics);
   client = &frameClient;
 }
 

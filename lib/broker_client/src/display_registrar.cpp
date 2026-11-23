@@ -1,5 +1,6 @@
 #include "display_registrar.h"
 
+#include "countdown_api/api.h"
 #include "retry.h"
 #include "token.h"
 
@@ -18,12 +19,17 @@ DisplayRegistrar::DisplayRegistrar(const std::string& brokerUrl, Store& store, H
 }
 
 void DisplayRegistrar::registerDevice() {
-  const std::string url = brokerUrl_ + "/api/devices/register";
   while (true) {
-    // The secret is URL-safe base64, so it needs no escaping. Both panels take the same frame format.
-    const std::string body = R"({"format":"mono-1bpp-packed","secret":")" + secret_ + R"(","width":)" +
-                             std::to_string(width_) + R"(,"height":)" + std::to_string(height_) + "}";
-    const HttpResponse response = http_.request("POST", url, body, secret_, "");
+    // The contract's registerDevice (countdown-api). Both panels take the same frame format. An e-paper screen
+    // says no type.
+    countdown_api::DeviceRegistration registration;
+    registration.secret = secret_;
+    registration.width = width_;
+    registration.height = height_;
+    registration.format = countdown_api::DeviceRegistration::FormatEnum::Mono1bppPacked;
+    const countdown_api::Request request = countdown_api::registerDevice(registration);
+    const std::string url = brokerUrl_ + request.path;
+    const HttpResponse response = http_.request(request.method, url, request.body, secret_, "");
     if (!response.sent) {
       log_.warning("Couldn't register with the broker: " + response.error);
       log_.info("Sleeping for " + std::to_string(kDefaultRetryS) + " seconds");
