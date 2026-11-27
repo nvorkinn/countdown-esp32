@@ -40,17 +40,12 @@ void DisplayRegistrar::registerDevice() {
     switch (response.status) {
       case 200:
       case 201:
-      case 202:  // Not matched with a renderer yet, which a display doesn't wait for
         log_.info("Registered with the broker");
         return;
       case 429:
       case 503:
         delay = retryAfterSeconds(response.retryAfter);
         break;
-      case 409:
-        log_.warning("The broker refused the secret (409); registering a new one");
-        newSecret();
-        continue;
       case 400:
         log_.error("The broker rejected the registration: " +
                    std::string(response.body.begin(), response.body.end()));

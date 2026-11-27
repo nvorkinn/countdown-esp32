@@ -281,18 +281,43 @@ void test_an_unreachable_broker_is_polled_again_after_the_default() {
   TEST_ASSERT_EQUAL(2, c.count(kFrameUrl));
 }
 
-void test_polls_carry_the_new_secret_after_a_409() {
-  Board board;
-  board.store.values[kDeviceSecretKey] = "a renderer's";
-  DisplayRegistrar registrar = board.registrar();
-  FrameClient client(registrar, board.http, board.display, board.sleeper, board.clock, board.logs, board.metrics);
-  board.http.reply(409);
-  board.http.reply(201);
-  board.http.reply(202);
+void test_a_second_401_straight_after_registering_waits_before_registering_again() {
+  Client c;
+  c.board.http.reply(201);
+  c.board.http.reply(401);
+  c.board.http.reply(201);
+  c.board.http.reply(401);
+  c.board.http.reply(201);
+  c.board.http.reply(202, "5");
 
-  client.tick();
+  c.client.tick();
+  c.client.tick();
 
-  TEST_ASSERT_EQUAL_STD_STRING(kFirstToken, board.http.requests[2].bearer);
+  // The broker took the registration but not the poll, twice: not a loop to run flat out.
+  TEST_ASSERT_EQUAL(1, c.board.sleeper.sleeps.size());
+  TEST_ASSERT_EQUAL(kDefaultRetryS, c.board.sleeper.sleeps[0]);
+  TEST_ASSERT_TRUE(c.board.log.has(LogLevel::Warning, "Another 401 straight after registering"));
+
+  c.client.tick();
+
+  TEST_ASSERT_EQUAL(3, c.count(kRegisterUrl));
+  TEST_ASSERT_EQUAL(3, c.count(kFrameUrl));
+}
+
+void test_a_401_after_an_answered_poll_registers_again_at_once() {
+  Client c;
+  c.board.http.reply(201);
+  c.board.http.reply(401);
+  c.board.http.reply(201);
+  c.board.http.reply(304, "0");
+  c.board.http.reply(401);
+
+  c.client.tick();
+  c.client.tick();
+  c.board.sleeper.sleeps.clear();
+  c.client.tick();
+
+  TEST_ASSERT_TRUE(c.board.sleeper.sleeps.empty());
 }
 
 void test_polls_carry_the_metrics_and_how_many_lines_were_dropped() {
@@ -468,7 +493,8 @@ void runFrameClientTests() {
   RUN_TEST(test_401_registers_again_with_the_same_secret_on_the_next_tick);
   RUN_TEST(test_an_unexpected_status_is_logged_and_waits_as_asked);
   RUN_TEST(test_an_unreachable_broker_is_polled_again_after_the_default);
-  RUN_TEST(test_polls_carry_the_new_secret_after_a_409);
+  RUN_TEST(test_a_second_401_straight_after_registering_waits_before_registering_again);
+  RUN_TEST(test_a_401_after_an_answered_poll_registers_again_at_once);
   RUN_TEST(test_polls_carry_the_metrics_and_how_many_lines_were_dropped);
   RUN_TEST(test_polls_carry_the_logs_with_their_uptime_level_and_escaped_message);
   RUN_TEST(test_logs_the_broker_answered_are_not_sent_again);

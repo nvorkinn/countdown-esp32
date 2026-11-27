@@ -106,12 +106,19 @@ void FrameClient::tick() {
         log_.error("Couldn't draw the frame");
       }
       break;
-    case 401:  // The broker doesn't know the secret (dropped from the pool, or unlinked)
+    case 401:  // The broker doesn't know the secret (forgotten, or unlinked)
       registered_ = false;
+      if (unauthorized_) {
+        log_.warning("Another 401 straight after registering; sleeping for " + std::to_string(kDefaultRetryS) +
+                     " seconds");
+        sleeper_.sleepSeconds(kDefaultRetryS);
+      }
+      unauthorized_ = true;
       return;
     default:
       break;
   }
+  unauthorized_ = false;
   const uint64_t waitMs = static_cast<uint64_t>(retryAfterSeconds(response.retryAfter)) * 1000;
   const uint64_t elapsedMs = clock_.uptimeMs() - answeredAtMs;
   sleeper_.sleepMs(std::max(kMinPollWaitMs, waitMs > elapsedMs ? waitMs - elapsedMs : 0));

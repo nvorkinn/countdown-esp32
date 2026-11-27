@@ -1,5 +1,6 @@
 #include "retry.h"
 
+#include <algorithm>
 #include <cctype>
 #include <string>
 
@@ -19,7 +20,7 @@ int retryAfterSeconds(const std::optional<std::string>& header) {
       return kDefaultRetryS;
     }
   }
-  return std::stoi(*header);
+  return std::min(std::stoi(*header), kMaxRetryS);
 }
 
 }  // namespace countdown

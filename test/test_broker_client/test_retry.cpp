@@ -24,6 +24,11 @@ void test_retry_after_defaults_when_not_whole_seconds() {
   TEST_ASSERT_EQUAL(kDefaultRetryS, retryAfterSeconds("Wed, 21 Oct 2026 07:28:00 GMT"));
 }
 
+void test_retry_after_is_an_hour_at_most() {
+  TEST_ASSERT_EQUAL(kMaxRetryS, retryAfterSeconds("3601"));
+  TEST_ASSERT_EQUAL(kMaxRetryS, retryAfterSeconds("999999999"));
+}
+
 void test_retry_after_defaults_when_too_long_to_be_sane() {
   TEST_ASSERT_EQUAL(kDefaultRetryS, retryAfterSeconds("99999999999999999999"));
 }
@@ -34,5 +39,6 @@ void runRetryTests() {
   RUN_TEST(test_retry_after_is_the_headers_seconds);
   RUN_TEST(test_retry_after_defaults_when_missing);
   RUN_TEST(test_retry_after_defaults_when_not_whole_seconds);
+  RUN_TEST(test_retry_after_is_an_hour_at_most);
   RUN_TEST(test_retry_after_defaults_when_too_long_to_be_sane);
 }
