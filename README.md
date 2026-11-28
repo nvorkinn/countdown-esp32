@@ -217,15 +217,18 @@ gcovr --root . --filter lib/ --gcov-executable "xcrun llvm-cov gcov" .pio/build/
    `device_secret`, and registers with the broker, sending the frame format it draws (`"format": "mono-1bpp-packed"`, the same
    for both panels) and the selected panel's size (`width` and `height`, 800x480 or 1872x1404). It registers again on every boot, with the same secret.
 3. It polls `/api/frame` with a `POST`, waiting as long as the broker's `Retry-After` says (60 seconds
-   if it is missing or invalid). The broker works the header out so the next poll lands just after its
+   if it is missing or invalid, and an hour at most). The broker works the header out so the next poll lands just after its
    next render (about :03 and :33 past the minute), so the wait counts from when the answer arrived: the time
    spent drawing a new frame comes off it, and it is never less than 1 second. A failed request waits 60 seconds.
    Every HTTP response is logged in the same format to serial and
    buffered for the next poll: `Frame response: HTTP 200 (48000 bytes), Retry-After: "30" seconds`.
    The header is quoted as received, or shown as `<missing>` when absent. A 401 triggers immediate
-   re-registration without sleeping, regardless of the header. Connection failures log the error and retry delay.
-   Registration retries log `Sleeping for N seconds` before each wait.
-   The broker answers 202 until it matches the display with a renderer. See
+   re-registration without sleeping, regardless of the header; a second 401 straight after that, with no poll
+   answered in between, waits 60 seconds first. Connection failures log the error and retry delay.
+   Registration retries log `Sleeping for N seconds` before each wait, and never make a new secret: the secret
+   is the board's identity, so an answer the broker doesn't give a registration (anything but a 200 or 201, a
+   400, a 429 or a 503) is logged and tried again after 60 seconds.
+   The broker answers 404 until it has a frame for the display. See
    [What each poll sends](#what-each-poll-sends).
 4. Each new frame (a `200`) is drawn on the panel: wake it, send the frame, refresh (timing depends on the panel),
    and put it back into deep sleep, as `countdown-client` does on the Pi.

@@ -21,9 +21,9 @@ class DisplayRegistrar {
   DisplayRegistrar(const std::string& brokerUrl, Store& store, Http& http, Random& random,
                    Sleeper& sleeper, Log& log, int width, int height);
 
-  // Registers, retrying until the broker takes it. A display registers on every boot (the broker
-  // allows it) and doesn't wait to be matched with a renderer: until it is, its frame polls
-  // answer 202.
+  // Registers, retrying until the broker takes it (a 200 or a 201). A display registers on every boot,
+  // which the broker allows. Nothing the broker answers makes it a new secret: the secret is the board's
+  // identity, and a new one would be a new, unpaired device.
   void registerDevice();
 
   const std::string& brokerUrl() const { return brokerUrl_; }

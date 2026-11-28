@@ -99,8 +99,6 @@ void test_it_goes_straight_on_when_the_broker_takes_it(int status) {
 
 void test_200_registers() { test_it_goes_straight_on_when_the_broker_takes_it(200); }
 void test_201_registers() { test_it_goes_straight_on_when_the_broker_takes_it(201); }
-// A display doesn't wait to be matched with a renderer.
-void test_202_registers() { test_it_goes_straight_on_when_the_broker_takes_it(202); }
 
 void test_it_waits_as_long_as_the_broker_asks(int status) {
   Board board;
@@ -129,22 +127,35 @@ void test_429_without_retry_after_waits_the_default() {
   TEST_ASSERT_TRUE(board.log.has(LogLevel::Info, "Sleeping for " + std::to_string(kDefaultRetryS) + " seconds"));
 }
 
-void test_409_registers_a_new_secret_straight_away() {
+// The secret is the board's identity: an answer the broker never gives mustn't make the board a new device.
+void test_409_keeps_the_secret_and_waits_the_default() {
   Board board;
-  board.store.values[kDeviceSecretKey] = "a renderer's";
+  board.store.values[kDeviceSecretKey] = "shh";
   board.http.reply(409);
   board.http.reply(201);
 
   DisplayRegistrar registrar = board.registrar();
   registrar.registerDevice();
 
-  TEST_ASSERT_EQUAL_STD_STRING(kFirstToken, registrar.secret());
-  TEST_ASSERT_TRUE(board.sleeper.sleeps.empty());
-  const SentRequest& retry = board.http.requests[1];
-  TEST_ASSERT_EQUAL_STD_STRING(registerBody(kFirstToken), retry.body);
-  TEST_ASSERT_EQUAL_STD_STRING(kFirstToken, retry.bearer);
-  TEST_ASSERT_EQUAL_STD_STRING(kFirstToken, *retry.storedSecret);
-  TEST_ASSERT_TRUE(board.log.has(LogLevel::Warning, "refused the secret"));
+  TEST_ASSERT_EQUAL_STD_STRING("shh", registrar.secret());
+  TEST_ASSERT_EQUAL_STD_STRING("shh", board.store.values[kDeviceSecretKey]);
+  TEST_ASSERT_EQUAL(0, board.random.next);
+  TEST_ASSERT_EQUAL(kDefaultRetryS, board.sleeper.sleeps[0]);
+  TEST_ASSERT_EQUAL_STD_STRING("shh", board.http.requests[1].bearer);
+  TEST_ASSERT_TRUE(board.log.has(LogLevel::Warning, "Unexpected 409"));
+}
+
+// Not an answer the broker gives a registration, so not one to take as registered.
+void test_202_is_unexpected_and_waits_the_default() {
+  Board board;
+  board.http.reply(202);
+  board.http.reply(201);
+
+  board.registrar().registerDevice();
+
+  TEST_ASSERT_EQUAL(2, board.http.requests.size());
+  TEST_ASSERT_EQUAL(kDefaultRetryS, board.sleeper.sleeps[0]);
+  TEST_ASSERT_TRUE(board.log.has(LogLevel::Warning, "Unexpected 202"));
 }
 
 void test_400_logs_the_brokers_reason_and_waits_the_default() {
@@ -209,11 +220,11 @@ void runDisplayRegistrarTests() {
   RUN_TEST(test_trailing_slashes_are_dropped_from_the_broker_url);
   RUN_TEST(test_200_registers);
   RUN_TEST(test_201_registers);
-  RUN_TEST(test_202_registers);
+  RUN_TEST(test_202_is_unexpected_and_waits_the_default);
   RUN_TEST(test_429_waits_for_retry_after);
   RUN_TEST(test_503_waits_for_retry_after);
   RUN_TEST(test_429_without_retry_after_waits_the_default);
-  RUN_TEST(test_409_registers_a_new_secret_straight_away);
+  RUN_TEST(test_409_keeps_the_secret_and_waits_the_default);
   RUN_TEST(test_400_logs_the_brokers_reason_and_waits_the_default);
   RUN_TEST(test_an_unexpected_status_is_logged_and_waits_the_default);
   RUN_TEST(test_an_unreachable_broker_is_retried_after_the_default);

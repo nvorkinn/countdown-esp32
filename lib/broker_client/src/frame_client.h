@@ -31,6 +31,10 @@ class FrameClient {
   LogBuffer& log_;
   Metrics& metrics_;
   bool registered_ = false;
+  // The last poll was a 401. The first one registers again at once; one straight after that, with no poll
+  // answered in between, waits first, so a broker that takes the registration but not the poll isn't asked
+  // in a tight loop.
+  bool unauthorized_ = false;
   // The ETag of the frame on the panel, sent as If-None-Match so the broker answers 304 instead of
   // sending the same frame again. Empty until a frame has been drawn.
   std::string etag_;
